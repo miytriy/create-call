@@ -3,7 +3,7 @@
 (() => {
   // ★ Firebase コンソール(Authentication)で取得した値に置き換えてください
   const FIREBASE_CONFIG = {
-       apiKey: "AIzaSyBwg8F35Joy0frgQ0yohf-nTobjc1BUgzc",
+    apiKey: "AIzaSyBwg8F35Joy0frgQ0yohf-nTobjc1BUgzc",
    authDomain: "new-world-ae4c0.firebaseapp.com",
    projectId: "new-world-ae4c0",
   };
@@ -191,6 +191,25 @@
       add("p", user.displayName || "(名前未設定)").style.fontWeight = "600";
       add("p", user.email || "", "hint").style.margin = "0 0 12px";
       const hasPw = user.providerData.some((p) => p.providerId === "password");
+      add("label", "ユーザー名");
+      const nameIn = add("input");
+      nameIn.value = user.displayName || "";
+      nameIn.maxLength = 20;
+      nameIn.placeholder = "表示名";
+      button("名前を保存", "secondary", async () => {
+        const n = nameIn.value.trim().slice(0, 20);
+        if (!n) throw new Error("名前を入力してください");
+        await fb.m.updateProfile(user, { displayName: n });
+        $("nameInput").value = n;
+        renderAccount(fb.auth.currentUser);
+      });
+      if (hasPw && !user.emailVerified) {
+        add("p", "メールアドレスが未確認です。届いた確認メールのリンクを開いてください。", "hint");
+        button("確認メールを再送", "secondary", async () => {
+          await fb.m.sendEmailVerification(user);
+          msg.textContent = "確認メールを送信しました。";
+        });
+      }
       if (hasPw) {
         button("パスワード変更メールを送る", "secondary", async () => {
           await fb.m.sendPasswordResetEmail(fb.auth, user.email);
@@ -202,14 +221,17 @@
         a.style.display = "block"; a.style.marginBottom = "12px";
       }
       button("サインアウト", "secondary", () => fb.m.signOut(fb.auth));
-      if (!$("nameInput").value) $("nameInput").value = user.displayName || "";
+      if (user.displayName) $("nameInput").value = user.displayName;
     } else {
       add("p", "サインインしていません。アカウントを作成すると、名前などを引き継げます。", "hint").style.margin = "0 0 12px";
       button("Googleでサインイン", "", () => fb.m.signInWithPopup(fb.auth, new fb.m.GoogleAuthProvider()));
       const email = add("input"); email.type = "email"; email.placeholder = "メールアドレス";
       const pw = add("input"); pw.type = "password"; pw.placeholder = "パスワード(6文字以上)";
       button("サインイン", "secondary", () => fb.m.signInWithEmailAndPassword(fb.auth, email.value, pw.value));
-      button("アカウントを作成", "secondary", () => fb.m.createUserWithEmailAndPassword(fb.auth, email.value, pw.value));
+      button("アカウントを作成", "secondary", async () => {
+        const cred = await fb.m.createUserWithEmailAndPassword(fb.auth, email.value, pw.value);
+        await fb.m.sendEmailVerification(cred.user);
+      });
     }
     box.appendChild(msg);
   }
