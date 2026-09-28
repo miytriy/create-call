@@ -221,6 +221,24 @@
         a.style.display = "block"; a.style.marginBottom = "12px";
       }
       button("サインアウト", "secondary", () => fb.m.signOut(fb.auth));
+      const del = button("アカウントを削除", "secondary", async () => {
+        if (!confirm("アカウントを完全に削除します。元に戻せません。よろしいですか?")) return;
+        try {
+          await fb.m.deleteUser(user);
+        } catch (e) {
+          if (e.code !== "auth/requires-recent-login") throw e;
+          // 削除は最近サインインした人だけ可能なので、本人確認をやり直す
+          if (hasPw) {
+            const pw = prompt("本人確認のため、パスワードを入力してください");
+            if (!pw) return;
+            await fb.m.reauthenticateWithCredential(user, fb.m.EmailAuthProvider.credential(user.email, pw));
+          } else {
+            await fb.m.reauthenticateWithPopup(user, new fb.m.GoogleAuthProvider());
+          }
+          await fb.m.deleteUser(user);
+        }
+      });
+      del.style.color = "#ff6b6b";
       if (user.displayName) $("nameInput").value = user.displayName;
     } else {
       add("p", "サインインしていません。アカウントを作成すると、名前などを引き継げます。", "hint").style.margin = "0 0 12px";
