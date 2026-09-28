@@ -264,6 +264,20 @@
     const auth = m.getAuth(initializeApp(FIREBASE_CONFIG));
     fb = { auth, m };
     m.onAuthStateChanged(auth, renderAccount);
+
+    // メール確認の完了を自動で検出する
+    // (確認済みかどうかは、reload() しないと端末側の情報が更新されないため)
+    const checkVerified = async () => {
+      const u = auth.currentUser;
+      if (!u || u.emailVerified) return;
+      try {
+        await u.reload();
+        if (u.emailVerified) renderAccount(u);
+      } catch {}
+    };
+    setInterval(checkVerified, 5000);
+    window.addEventListener("focus", checkVerified);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) checkVerified(); });
   }
 
   // ---------- 初期化 ----------
