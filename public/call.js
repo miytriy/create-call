@@ -18,6 +18,22 @@ const VoiceCall = (() => {
   let pendingCandidates = [];
   let ready = null;
 
+  // Opus(音声コーデック)を高音質設定に書き換える
+  //  - maxaveragebitrate: 最大128kbps(声なら十分に高音質)
+  //  - useinbandfec: パケットが欠けても音が途切れにくくする
+  //  - usedtx=0: 無音時も送り続けて、音の出だしが欠けるのを防ぐ
+  //  - minptime=10: 10msごとに送って遅延を減らす
+  function tuneOpus(sdp) {
+    const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
+    if (!m) return sdp;
+    const pt = m[1];
+    const params =
+      "minptime=10;useinbandfec=1;usedtx=0;stereo=0;maxaveragebitrate=128000;maxplaybackrate=48000";
+    const re = new RegExp(`a=fmtp:${pt} .*`);
+    if (re.test(sdp)) return sdp.replace(re, `a=fmtp:${pt} ${params}`);
+    return sdp.replace(m[0], `${m[0]}\r\na=fmtp:${pt} ${params}`);
+  }
+
   async function flushCandidates() {
     for (const c of pendingCandidates) {
       try { await pc.addIceCandidate(c); } catch (e) { console.warn(e); }
@@ -35,7 +51,7 @@ const VoiceCall = (() => {
         await pc.setRemoteDescription(msg.sdp);
         await flushCandidates();
         const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
+        await pc.setLocalDescription({ type: answer.type, sdp: tuneOpus(answer.sdp) });
         socket.emit("signal", { type: "answer", sdp: pc.localDescription });
       } else if (msg.type === "answer") {
         await pc.setRemoteDescription(msg.sdp);
@@ -74,25 +90,39 @@ const VoiceCall = (() => {
 
     socket.on("signal", onSignal);
 
-    ready = navigator.mediaDevices
-      .getUserMedia({ audio: true })
+    // マイクが使えなくても通話は切らない(聞くだけのモードで続行)
+    ready = Promise.resolve()
+      .then(() => navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: { ideal: 1 },
+          sampleRate: { ideal: 48000 },
+        },
+      }))
       .then((stream) => {
         if (pc !== current) { stream.getTracks().forEach((t) => t.stop()); return; }
         localStream = stream;
-        stream.getTracks().forEach((t) => pc.addTrack(t, stream));
+        stream.getTracks().forEach((t) => {
+          t.contentHint = "speech";
+          pc.addTrack(t, stream);
+        });
+      })
+      .catch((e) => {
+        console.warn("[VoiceCall] マイクなしで続行します", e);
+        if (onStateChange) onStateChange("no-mic");
+        // 発信側は、音声を受信する枠を明示しないとofferに音声が含まれない
+        if (initiator && pc === current) {
+          pc.addTransceiver("audio", { direction: "recvonly" });
+        }
       });
 
-    try {
-      await ready;
-    } catch (e) {
-      console.error("[VoiceCall] マイクを取得できません", e);
-      stop();
-      throw e;
-    }
+    await ready;
 
     if (initiator && pc === current) {
       const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
+      await pc.setLocalDescription({ type: offer.type, sdp: tuneOpus(offer.sdp) });
       socket.emit("signal", { type: "offer", sdp: pc.localDescription });
     }
   }
