@@ -1,11 +1,14 @@
 // =============================================================
-// 部屋コード方式マッチング サーバー(バグ修正版)
+// 部屋コード方式マッチング サーバー(バグ修正版 + カラー中継)
 // -------------------------------------------------------------
 // 修正点:
 //   1) join_room 時に、すでに部屋にいる場合は先に退出させる
 //      (二重参加・自分自身とのマッチを防止)
 //   2) イベントの引数が未定義/不正でもサーバーが落ちないようにする
 //   3) send_message の入力チェック(文字列・空文字)を追加
+// 追加点:
+//   4) send_message で受け取った nameColor / textColor を検証し、
+//      chat_message に載せて相手へ中継する(形式は #rrggbb のみ許可)
 // =============================================================
 
 const express = require("express");
@@ -24,6 +27,12 @@ const rooms = new Map();
 
 // socketId -> 現在参加している部屋コード
 const socketRoom = new Map();
+
+// チャットの色として許可する形式(#rrggbb)
+const HEX_COLOR = /^#[0-9a-f]{6}$/i;
+function sanitizeColor(value) {
+  return typeof value === "string" && HEX_COLOR.test(value) ? value : null;
+}
 
 function normalizeCode(raw) {
   const halfWidth = String(raw || "").replace(/[\uFF01-\uFF5E]/g, (ch) =>
@@ -115,6 +124,9 @@ io.on("connection", (socket) => {
         from: socket.id,
         name: me.name,
         text: trimmed.slice(0, 1000),
+        // 追加4: 色は #rrggbb の形式だけ通す(それ以外は null)
+        nameColor: sanitizeColor(payload.nameColor),
+        textColor: sanitizeColor(payload.textColor),
         ts: Date.now(),
       });
     } catch (err) {
