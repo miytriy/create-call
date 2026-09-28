@@ -1,28 +1,19 @@
 // 音声通話モジュール (WebRTC)
-// 使い方:
-//   <audio id="remoteAudio" autoplay></audio>
-//   <script src="/call.js"></script>
-//
-//   socket.on("matched", ({ initiator }) =>
-//     VoiceCall.start(socket, initiator, document.getElementById("remoteAudio")));
-//   socket.on("partner_left", () => VoiceCall.stop());
-//   // 退出ボタンを押したときも VoiceCall.stop() を呼ぶ
-//   // ミュート: VoiceCall.setMuted(true / false)
+//   VoiceCall.start(socket, initiator, audioEl, onStateChange)
+//   VoiceCall.stop()
+//   VoiceCall.setMuted(bool)
+//   VoiceCall.setSettings({ micId, echo, noise, agc, micGain })  // 通話中でも反映
 
 const VoiceCall = (() => {
   const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 
-  let pc = null;
-  let localStream = null;
-  let socket = null;
+  let cfg = { micId: "", echo: true, noise: true, agc: true, micGain: 1 };
+  let pc = null, socket = null, ready = null, sender = null;
+  let rawStream = null, outTrack = null, audioCtx = null, gainNode = null;
   let pendingCandidates = [];
-  let ready = null;
+  let muted = false;
 
-  // Opus(音声コーデック)を高音質設定に書き換える
-  //  - maxaveragebitrate: 最大128kbps(声なら十分に高音質)
-  //  - useinbandfec: パケットが欠けても音が途切れにくくする
-  //  - usedtx=0: 無音時も送り続けて、音の出だしが欠けるのを防ぐ
-  //  - minptime=10: 10msごとに送って遅延を減らす
+  // Opus を高音質設定に書き換える(128kbps / FEC有効 / DTX無効 / 10ms)
   function tuneOpus(sdp) {
     const m = sdp.match(/a=rtpmap:(\d+) opus\/48000\/2/);
     if (!m) return sdp;
@@ -41,12 +32,44 @@ const VoiceCall = (() => {
     pendingCandidates = [];
   }
 
+  // マイク取得 → GainNode(音量調整) → 送信用トラック
+  async function acquireMic() {
+    const audio = {
+      echoCancellation: cfg.echo,
+      noiseSuppression: cfg.noise,
+      autoGainControl: cfg.agc,
+      channelCount: { ideal: 1 },
+      sampleRate: { ideal: 48000 },
+    };
+    if (cfg.micId) audio.deviceId = { ideal: cfg.micId };
+    const raw = await navigator.mediaDevices.getUserMedia({ audio });
+    if (!audioCtx) audioCtx = new AudioContext();
+    audioCtx.resume().catch(() => {});
+    const src = audioCtx.createMediaStreamSource(raw);
+    gainNode = audioCtx.createGain();
+    gainNode.gain.value = cfg.micGain;
+    const dest = audioCtx.createMediaStreamDestination();
+    src.connect(gainNode).connect(dest);
+    if (rawStream) rawStream.getTracks().forEach((t) => t.stop());
+    rawStream = raw;
+    outTrack = dest.stream.getAudioTracks()[0];
+    outTrack.contentHint = "speech";
+    outTrack.enabled = !muted;
+    return { track: outTrack, stream: dest.stream };
+  }
+
+  function cleanupMic() {
+    if (rawStream) rawStream.getTracks().forEach((t) => t.stop());
+    if (audioCtx) audioCtx.close().catch(() => {});
+    rawStream = outTrack = audioCtx = gainNode = null;
+  }
+
   async function onSignal(msg) {
     if (!pc || !msg) return;
     const current = pc;
     try {
       if (msg.type === "offer") {
-        await ready; // マイク取得を待ってから応答する
+        await ready;
         if (pc !== current) return;
         await pc.setRemoteDescription(msg.sdp);
         await flushCandidates();
@@ -67,6 +90,7 @@ const VoiceCall = (() => {
 
   async function start(sock, initiator, audioEl, onStateChange) {
     stop();
+    muted = false;
     socket = sock;
     pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const current = pc;
@@ -79,40 +103,24 @@ const VoiceCall = (() => {
       if (e.candidate) socket.emit("signal", { type: "candidate", candidate: e.candidate });
     };
     pc.ontrack = (e) => {
-      console.log("[VoiceCall] 相手の音声トラックを受信");
       if (onStateChange) onStateChange("track-received");
       audioEl.srcObject = e.streams[0];
-      audioEl.play().catch((err) => {
-        console.warn("[VoiceCall] 自動再生がブロックされました", err);
+      audioEl.play().catch(() => {
         if (onStateChange) onStateChange("autoplay-blocked");
       });
     };
 
     socket.on("signal", onSignal);
 
-    // マイクが使えなくても通話は切らない(聞くだけのモードで続行)
-    ready = Promise.resolve()
-      .then(() => navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: { ideal: 1 },
-          sampleRate: { ideal: 48000 },
-        },
-      }))
-      .then((stream) => {
-        if (pc !== current) { stream.getTracks().forEach((t) => t.stop()); return; }
-        localStream = stream;
-        stream.getTracks().forEach((t) => {
-          t.contentHint = "speech";
-          pc.addTrack(t, stream);
-        });
+    // マイクが使えなくても通話は切らない(聞くだけで続行)
+    ready = acquireMic()
+      .then(({ track, stream }) => {
+        if (pc !== current) { cleanupMic(); return; }
+        sender = pc.addTrack(track, stream);
       })
       .catch((e) => {
         console.warn("[VoiceCall] マイクなしで続行します", e);
         if (onStateChange) onStateChange("no-mic");
-        // 発信側は、音声を受信する枠を明示しないとofferに音声が含まれない
         if (initiator && pc === current) {
           pc.addTransceiver("audio", { direction: "recvonly" });
         }
@@ -127,20 +135,34 @@ const VoiceCall = (() => {
     }
   }
 
-  function setMuted(muted) {
-    if (!localStream) return;
-    localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
+  // 設定の反映。音量は即時、マイク/エコー/ノイズの変更は通話中ならマイクを取り直す
+  async function setSettings(next) {
+    const prev = cfg;
+    cfg = { ...cfg, ...next };
+    if (gainNode) gainNode.gain.value = cfg.micGain;
+    const changed = ["micId", "echo", "noise", "agc"].some((k) => prev[k] !== cfg[k]);
+    if (changed && pc && sender) {
+      try {
+        const { track } = await acquireMic();
+        await sender.replaceTrack(track);
+      } catch (e) {
+        console.warn("[VoiceCall] マイクの切り替えに失敗", e);
+      }
+    }
+  }
+
+  function setMuted(m) {
+    muted = m;
+    if (outTrack) outTrack.enabled = !m;
   }
 
   function stop() {
     if (socket) socket.off("signal", onSignal);
-    if (localStream) localStream.getTracks().forEach((t) => t.stop());
+    cleanupMic();
     if (pc) pc.close();
-    pc = null;
-    localStream = null;
+    pc = sender = ready = null;
     pendingCandidates = [];
-    ready = null;
   }
 
-  return { start, stop, setMuted };
+  return { start, stop, setMuted, setSettings };
 })();
