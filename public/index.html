@@ -108,6 +108,9 @@
   [data-theme="light"] .msg.me { color: #a8710f; }
   [data-theme="light"] label, [data-theme="light"] .hint { color: #6b6f7c; }
   [data-theme="light"] .sw { color: #1d1f27; }
+  /* --- 自分のチャットのカスタム色(指定があるときだけ有効) --- */
+  [data-custom-me] .msg.me { color: var(--my-msg-color); }
+  [data-custom-name] .msg.me .who { color: var(--my-name-color); opacity: 1; }
 </style>
 </head>
 <body>
@@ -189,6 +192,18 @@
       <label class="sw"><input type="radio" name="theme" value="system">端末の設定に合わせる</label>
       <label class="sw"><input type="radio" name="theme" value="dark">ダーク</label>
       <label class="sw"><input type="radio" name="theme" value="light">ライト</label>
+
+      <label>自分のユーザー名の色</label>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="color" id="myNameColor" style="height:40px; padding:2px;">
+        <button id="myNameReset" class="secondary">リセット</button>
+      </div>
+
+      <label>自分の文字色</label>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="color" id="myMsgColor" style="height:40px; padding:2px;">
+        <button id="myMsgReset" class="secondary">リセット</button>
+      </div>
     </div>
   </div>
 </div>
@@ -305,7 +320,7 @@
     // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
     const who = document.createElement("span");
     who.className = "who";
-    who.textContent = mine ? "自分" : name;
+    who.textContent = name;
     div.appendChild(who);
     div.appendChild(document.createTextNode(text));
     chatBox.appendChild(div);
@@ -331,5 +346,54 @@
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
 </script>
 <script src="/settings.js"></script>
+<script>
+// 自分のユーザー名の色・文字色を変更する(設定 > テーマ)
+(() => {
+  const root = document.documentElement;
+  const load = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const save = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+  const toHex = (rgb) =>
+    '#' + rgb.match(/\d+/g).slice(0, 3).map(n => (+n).toString(16).padStart(2, '0')).join('');
+
+  // 現在のテーマでの標準色(ピッカーの初期表示用)
+  function probe() {
+    const el = document.createElement('div');
+    el.className = 'msg me';
+    el.style.cssText = 'position:absolute; visibility:hidden;';
+    document.body.appendChild(el);
+    const c = getComputedStyle(el).color;
+    el.remove();
+    return toHex(c);
+  }
+
+  function setupColor({ key, attr, cssVar, inputId, resetId }) {
+    const input = document.getElementById(inputId);
+    const resetBtn = document.getElementById(resetId);
+    const sync = () => { input.value = probe(); };
+    const apply = (c) => { root.style.setProperty(cssVar, c); root.setAttribute(attr, ''); };
+
+    const saved = load(key);
+    if (saved) { apply(saved); input.value = saved; } else { sync(); }
+
+    input.addEventListener('input', (e) => { apply(e.target.value); save(key, e.target.value); });
+
+    resetBtn.addEventListener('click', () => {
+      root.style.removeProperty(cssVar);
+      root.removeAttribute(attr);
+      save(key, null);
+      sync();
+    });
+
+    // テーマ切り替え時、未カスタムならピッカー表示を標準色に追従させる
+    new MutationObserver(() => { if (!load(key)) sync(); })
+      .observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  setupColor({ key: 'myNameColor', attr: 'data-custom-name', cssVar: '--my-name-color',
+               inputId: 'myNameColor', resetId: 'myNameReset' });
+  setupColor({ key: 'myMsgColor', attr: 'data-custom-me', cssVar: '--my-msg-color',
+               inputId: 'myMsgColor', resetId: 'myMsgReset' });
+})();
+</script>
 </body>
 </html>
