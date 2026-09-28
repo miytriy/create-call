@@ -4,15 +4,15 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
-<title>部屋コード マッチング</title>
+<title>通話・チャット</title>
 <style>
   * { box-sizing: border-box; }
   html {
-    /* Android の自動ダーク変換を止め、背景色も明示する(URLバーの開閉で html の地色が見えることがあるため) */
+    /* Android系ブラウザの自動ダーク変換を止め、背景色も明示する */
     color-scheme: dark;
     background: #12141c;
   }
-  [data-theme="light"] { color-scheme: light; }
+  [data-theme="light"] { color-scheme: light; background: #f3f2ee; }
   [data-theme="dark"] { color-scheme: dark; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -88,6 +88,20 @@
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
   .hidden { display: none; }
+  /* --- モード選択画面 --- */
+  .mode-card {
+    width: 100%; text-align: left; padding: 14px; border-radius: 14px;
+    background: #20242f; border: 1px solid #33384a; color: inherit;
+    cursor: pointer; margin-bottom: 10px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .mode-card .mc-icon { font-size: 22px; line-height: 1.2; }
+  .mode-card .mc-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+  .mode-card .mc-desc { font-size: 12px; color: #8a8f9e; }
+  .back-link {
+    width: auto; margin: 0 0 14px; padding: 6px 12px; background: none; color: inherit;
+    font-size: 12px; border: 1px solid #33384a; border-radius: 8px;
+  }
+  .member-list { font-size: 12px; color: #8a8f9e; margin: -6px 0 10px; word-break: break-all; }
   /* --- 設定パネル --- */
   .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
@@ -107,15 +121,14 @@
   .avatar { width: 56px; height: 56px; border-radius: 50%; margin-bottom: 8px; }
   .sw input[type=checkbox] { width: auto; margin: 0 8px 0 0; padding: 0; }
   /* --- ライトテーマ --- */
-  [data-theme="light"] { background: #f3f2ee; }
   [data-theme="light"] body { background: #f3f2ee; color: #1d1f27; }
   [data-theme="light"] .card, [data-theme="light"] .sheet { background: #fff; border-color: #dcdad2; }
   [data-theme="light"] input, [data-theme="light"] .sheet select, [data-theme="light"] .code-badge, [data-theme="light"] .chat-box, [data-theme="light"] .meter { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
-  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
+  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear, [data-theme="light"] .mode-card, [data-theme="light"] .back-link { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
   [data-theme="light"] .tab.on { background: #e0a840; color: #1a1206; }
   [data-theme="light"] .msg.them { color: #3a3d48; }
   [data-theme="light"] .msg.me { color: #a8710f; }
-  [data-theme="light"] label, [data-theme="light"] .hint { color: #6b6f7c; }
+  [data-theme="light"] label, [data-theme="light"] .hint, [data-theme="light"] .mode-card .mc-desc, [data-theme="light"] .member-list { color: #6b6f7c; }
   [data-theme="light"] .sw { color: #1d1f27; }
   /* --- 自分のチャットのカスタム色(指定があるときだけ有効) --- */
   [data-custom-me] .msg.me { color: var(--my-msg-color); }
@@ -124,9 +137,37 @@
 </head>
 <body>
 <div class="card">
-  <h1>🔑 部屋コード マッチング</h1>
+  <h1 id="mainTitle">💬 チャットを選ぶ</h1>
 
-  <div id="setup">
+  <!-- ① モード選択 -->
+  <div id="modeSelect">
+    <button class="mode-card" data-mode="personal">
+      <span class="mc-icon">🔑</span>
+      <span>
+        <span class="mc-title">個人チャット</span><br>
+        <span class="mc-desc">部屋コードを共有した1人と、音声通話+チャット</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="group">
+      <span class="mc-icon">👥</span>
+      <span>
+        <span class="mc-title">グループチャット</span><br>
+        <span class="mc-desc">部屋コードを知っている複数人でテキストチャット(人数上限あり)</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="random">
+      <span class="mc-icon">🎲</span>
+      <span>
+        <span class="mc-title">ランダムチャット</span><br>
+        <span class="mc-desc">コード不要。待機中の誰かと自動でマッチングし、音声通話+チャット</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- ② 個人/グループ:コード入力 -->
+  <div id="codeSetup" class="hidden">
+    <button class="back-link" data-back="1">← 戻る</button>
+
     <label>表示名</label>
     <input id="nameInput" placeholder="例: ゆめみ" maxlength="20" />
 
@@ -134,20 +175,44 @@
     <input id="codeInput" class="code" placeholder="例: ABC123" maxlength="8" />
     <p class="hint">同じコードを入力した人同士がマッチングされます</p>
 
-    <label class="sw"><input type="checkbox" id="preMic">マイクをミュートして入室</label>
-    <label class="sw"><input type="checkbox" id="preSpk">スピーカーをミュートして入室</label>
+    <div id="groupOptions" class="hidden">
+      <label>人数上限(2〜20人・部屋を新規に作る場合のみ有効)</label>
+      <input id="groupLimitInput" type="number" min="2" max="20" value="10" />
+    </div>
 
-    <p class="error hidden" id="errorMsg"></p>
-    <button id="joinBtn">入室する</button>
+    <div id="personalOptions">
+      <label class="sw"><input type="checkbox" id="preMic">マイクをミュートして入室</label>
+      <label class="sw"><input type="checkbox" id="preSpk">スピーカーをミュートして入室</label>
+    </div>
+
+    <p class="error hidden" id="codeError"></p>
+    <button id="codeJoinBtn">入室する</button>
   </div>
 
+  <!-- ③ ランダムチャット:入室前 -->
+  <div id="randomSetup" class="hidden">
+    <button class="back-link" data-back="1">← 戻る</button>
+
+    <label>表示名</label>
+    <input id="randomNameInput" placeholder="例: ゆめみ" maxlength="20" />
+    <p class="hint">ボタンを押すと、同じタイミングで待っている誰かと自動でマッチングします</p>
+
+    <label class="sw"><input type="checkbox" id="randomPreMic">マイクをミュートして入室</label>
+    <label class="sw"><input type="checkbox" id="randomPreSpk">スピーカーをミュートして入室</label>
+
+    <p class="error hidden" id="randomError"></p>
+    <button id="randomJoinBtn">ランダムマッチング開始</button>
+  </div>
+
+  <!-- ④ 待機中(個人/ランダム共通) -->
   <div id="waiting" class="hidden">
-    <p class="status">相手の入室を待っています…</p>
-    <div class="code-badge" id="waitingCode"></div>
-    <p class="hint" style="text-align:center;">このコードを相手に共有してください</p>
+    <p class="status" id="waitingStatus">相手の入室を待っています…</p>
+    <div class="code-badge hidden" id="waitingCode"></div>
+    <p class="hint hidden" id="waitingHint" style="text-align:center;">このコードを相手に共有してください</p>
     <button id="cancelBtn" class="secondary">キャンセル</button>
   </div>
 
+  <!-- ⑤ 通話中(個人/ランダム共通:音声+チャット) -->
   <div id="matched" class="hidden">
     <p class="status" id="matchedStatus"></p>
     <p class="hint" id="callState" style="text-align:center;"></p>
@@ -159,6 +224,18 @@
       <button id="sendBtn">送信</button>
     </div>
     <button id="leaveBtn" class="secondary">退出する</button>
+  </div>
+
+  <!-- ⑥ グループチャット中(テキストのみ) -->
+  <div id="groupRoom" class="hidden">
+    <p class="status" id="groupStatus"></p>
+    <p class="member-list" id="groupMembers"></p>
+    <div id="groupChatBox" class="chat-box"></div>
+    <div class="row" style="margin-bottom:8px;">
+      <input id="groupMsgInput" placeholder="メッセージを入力" />
+      <button id="groupSendBtn">送信</button>
+    </div>
+    <button id="groupLeaveBtn" class="secondary">退出する</button>
   </div>
 
   <audio id="remoteAudio" autoplay></audio>
@@ -225,25 +302,41 @@
 <script>
   const socket = io();
 
-  const setupEl = document.getElementById("setup");
-  const waitingEl = document.getElementById("waiting");
-  const matchedEl = document.getElementById("matched");
+  // ---------- 画面切り替え ----------
+  const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom"];
+  const mainTitle = document.getElementById("mainTitle");
+  function showScreen(name, title) {
+    SCREENS.forEach((id) => document.getElementById(id).classList.toggle("hidden", id !== name));
+    if (title) mainTitle.textContent = title;
+  }
 
+  let currentMode = null; // 'personal' | 'group' | 'random'
+
+  document.querySelectorAll(".mode-card").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentMode = btn.dataset.mode;
+      document.getElementById("codeError").classList.add("hidden");
+      document.getElementById("randomError").classList.add("hidden");
+      if (currentMode === "random") {
+        showScreen("randomSetup", "🎲 ランダムチャット");
+      } else {
+        document.getElementById("personalOptions").classList.toggle("hidden", currentMode !== "personal");
+        document.getElementById("groupOptions").classList.toggle("hidden", currentMode !== "group");
+        showScreen("codeSetup", currentMode === "group" ? "👥 グループチャット" : "🔑 個人チャット");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-back]").forEach((btn) => {
+    btn.addEventListener("click", () => showScreen("modeSelect", "💬 チャットを選ぶ"));
+  });
+
+  // ---------- 個人/グループ:コード入室 ----------
   const nameInput = document.getElementById("nameInput");
   const codeInput = document.getElementById("codeInput");
-  const errorMsg = document.getElementById("errorMsg");
-  const joinBtn = document.getElementById("joinBtn");
-  const cancelBtn = document.getElementById("cancelBtn");
-  const waitingCode = document.getElementById("waitingCode");
-  const matchedStatus = document.getElementById("matchedStatus");
-  const chatBox = document.getElementById("chatBox");
-  const msgInput = document.getElementById("msgInput");
-  const sendBtn = document.getElementById("sendBtn");
-  const leaveBtn = document.getElementById("leaveBtn");
-  const muteBtn = document.getElementById("muteBtn");
-  const remoteAudio = document.getElementById("remoteAudio");
-
-  let muted = false;
+  const codeError = document.getElementById("codeError");
+  const codeJoinBtn = document.getElementById("codeJoinBtn");
+  const groupLimitInput = document.getElementById("groupLimitInput");
 
   function normalizeCode(raw) {
     const halfWidth = raw.replace(/[\uFF01-\uFF5E]/g, (ch) =>
@@ -255,43 +348,90 @@
   codeInput.addEventListener("input", () => {
     const cursorAtEnd = codeInput.selectionStart === codeInput.value.length;
     codeInput.value = normalizeCode(codeInput.value);
-    if (cursorAtEnd) {
-      codeInput.selectionStart = codeInput.selectionEnd = codeInput.value.length;
-    }
+    if (cursorAtEnd) codeInput.selectionStart = codeInput.selectionEnd = codeInput.value.length;
   });
 
-  function showScreen(name) {
-    setupEl.classList.toggle("hidden", name !== "setup");
-    waitingEl.classList.toggle("hidden", name !== "waiting");
-    matchedEl.classList.toggle("hidden", name !== "matched");
+  function showCodeError(text) {
+    codeError.textContent = text;
+    codeError.classList.toggle("hidden", !text);
   }
 
-  function showError(text) {
-    errorMsg.textContent = text;
-    errorMsg.classList.toggle("hidden", !text);
-  }
-
-  joinBtn.addEventListener("click", () => {
+  codeJoinBtn.addEventListener("click", () => {
     const displayName = nameInput.value.trim() || "名無し";
     const code = normalizeCode(codeInput.value);
-    if (!code) {
-      showError("部屋コードを入力してください");
-      return;
+    if (!code) { showCodeError("部屋コードを入力してください"); return; }
+    showCodeError("");
+    const payload = { displayName, code, mode: currentMode };
+    if (currentMode === "group") {
+      let limit = parseInt(groupLimitInput.value, 10);
+      if (!Number.isFinite(limit)) limit = 10;
+      payload.limit = Math.min(20, Math.max(2, limit));
     }
-    showError("");
-    socket.emit("join_room", { displayName, code });
+    socket.emit("join_room", payload);
   });
+
+  // ---------- ランダムチャット:入室 ----------
+  const randomNameInput = document.getElementById("randomNameInput");
+  const randomError = document.getElementById("randomError");
+  const randomJoinBtn = document.getElementById("randomJoinBtn");
+
+  function showRandomError(text) {
+    randomError.textContent = text;
+    randomError.classList.toggle("hidden", !text);
+  }
+
+  randomJoinBtn.addEventListener("click", () => {
+    const displayName = randomNameInput.value.trim() || "名無し";
+    showRandomError("");
+    socket.emit("join_random", { displayName });
+  });
+
+  // ---------- 待機画面 ----------
+  const waitingCode = document.getElementById("waitingCode");
+  const waitingHint = document.getElementById("waitingHint");
+  const waitingStatus = document.getElementById("waitingStatus");
+  const cancelBtn = document.getElementById("cancelBtn");
 
   cancelBtn.addEventListener("click", () => {
     socket.emit("leave_room");
-    showScreen("setup");
+    showScreen("modeSelect", "💬 チャットを選ぶ");
   });
+
+  socket.on("join_error", ({ message }) => {
+    if (currentMode === "random") showRandomError(message);
+    else showCodeError(message);
+  });
+
+  socket.on("waiting", ({ code }) => {
+    waitingStatus.textContent = currentMode === "random" ? "お相手を探しています…" : "相手の入室を待っています…";
+    if (code) {
+      waitingCode.textContent = code;
+      waitingCode.classList.remove("hidden");
+      waitingHint.classList.remove("hidden");
+    } else {
+      waitingCode.classList.add("hidden");
+      waitingHint.classList.add("hidden");
+    }
+    showScreen("waiting");
+  });
+
+  // ---------- 通話中(個人/ランダム共通) ----------
+  const matchedStatus = document.getElementById("matchedStatus");
+  const chatBox = document.getElementById("chatBox");
+  const msgInput = document.getElementById("msgInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const leaveBtn = document.getElementById("leaveBtn");
+  const muteBtn = document.getElementById("muteBtn");
+  const remoteAudio = document.getElementById("remoteAudio");
+  const callState = document.getElementById("callState");
+
+  let muted = false;
 
   leaveBtn.addEventListener("click", () => {
     VoiceCall.stop();
     socket.emit("leave_room");
     chatBox.innerHTML = "";
-    showScreen("setup");
+    showScreen("modeSelect", "💬 チャットを選ぶ");
   });
 
   muteBtn.addEventListener("click", () => {
@@ -300,32 +440,50 @@
     muteBtn.textContent = muted ? "🔇 ミュート解除" : "🎤 ミュートする";
   });
 
-  socket.on("join_error", ({ message }) => {
-    showError(message);
-  });
-
-  socket.on("waiting", ({ code }) => {
-    waitingCode.textContent = code;
-    showScreen("waiting");
-  });
-
   socket.on("matched", ({ partnerName, initiator }) => {
     matchedStatus.textContent = `✅ ${partnerName} さんとマッチングしました！`;
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
-    showScreen("matched");
-    const callState = document.getElementById("callState");
+    showScreen("matched", currentMode === "random" ? "🎲 ランダムチャット" : "🔑 個人チャット");
     callState.textContent = "通話: 接続準備中…";
     VoiceCall.start(socket, initiator, remoteAudio, (s) => {
-      callState.textContent =
-        s === "no-mic" ? "通話: マイクなし(相手の声だけ聞こえます)" : "通話: " + s;
+      callState.textContent = s === "no-mic" ? "通話: マイクなし(相手の声だけ聞こえます)" : "通話: " + s;
     }).catch((e) => {
       console.error(e);
       callState.textContent = "通話: 接続に失敗しました";
     });
   });
 
-  // ---- 相手のカラー表示(ブロック設定つき) ----
+  socket.on("partner_left", () => {
+    VoiceCall.stop();
+    socket.emit("leave_room");
+    chatBox.innerHTML = "";
+    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showCodeError("相手が退出しました。もう一度入室できます。");
+  });
+
+  // ---------- グループチャット中 ----------
+  const groupStatus = document.getElementById("groupStatus");
+  const groupMembers = document.getElementById("groupMembers");
+  const groupChatBox = document.getElementById("groupChatBox");
+  const groupMsgInput = document.getElementById("groupMsgInput");
+  const groupSendBtn = document.getElementById("groupSendBtn");
+  const groupLeaveBtn = document.getElementById("groupLeaveBtn");
+
+  groupLeaveBtn.addEventListener("click", () => {
+    socket.emit("leave_room");
+    groupChatBox.innerHTML = "";
+    showScreen("modeSelect", "💬 チャットを選ぶ");
+  });
+
+  socket.on("group_update", ({ code, members, limit }) => {
+    currentMode = "group";
+    groupStatus.textContent = `👥 グループチャット(${members.length}/${limit}人) コード: ${code}`;
+    groupMembers.textContent = "参加者: " + members.map((m) => m.name).join("、");
+    showScreen("groupRoom", "👥 グループチャット");
+  });
+
+  // ---------- チャット共通処理 ----------
   const HEX_RE = /^#[0-9a-f]{6}$/i;
   const isColorBlocked = () => {
     try { return localStorage.getItem("blockPartnerColor") === "1"; } catch { return false; }
@@ -333,7 +491,7 @@
   // 相手のメッセージに、受け取った色を反映する(ブロック中は標準色に戻す)
   function applyPartnerColors() {
     const blocked = isColorBlocked();
-    chatBox.querySelectorAll(".msg.them").forEach((el) => {
+    document.querySelectorAll(".msg.them").forEach((el) => {
       const nc = el.dataset.nameColor;
       const tc = el.dataset.textColor;
       const who = el.querySelector(".who");
@@ -355,11 +513,10 @@
     return { nameColor: get("myNameColor"), textColor: get("myMsgColor") };
   }
 
-  socket.on("chat_message", ({ from, name, text, nameColor, textColor }) => {
+  function renderMessage(targetBox, { from, name, text, nameColor, textColor }) {
     const div = document.createElement("div");
     const mine = from === socket.id;
     div.className = "msg " + (mine ? "me" : "them");
-    // 相手から届いた色は、形式(#rrggbb)を確認できたものだけ使う
     if (!mine) {
       if (HEX_RE.test(nameColor || "")) div.dataset.nameColor = nameColor;
       if (HEX_RE.test(textColor || "")) div.dataset.textColor = textColor;
@@ -370,18 +527,14 @@
     who.textContent = name;
     div.appendChild(who);
     div.appendChild(document.createTextNode(text));
-    chatBox.appendChild(div);
+    targetBox.appendChild(div);
     if (!mine) applyPartnerColors();
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
+    targetBox.scrollTop = targetBox.scrollHeight;
+  }
 
-  socket.on("partner_left", () => {
-    VoiceCall.stop();
-    // サーバー側の部屋にも自分が残っているので、明示的に退出しておく
-    socket.emit("leave_room");
-    chatBox.innerHTML = "";
-    showScreen("setup");
-    showError("相手が退出しました。もう一度入室できます。");
+  socket.on("chat_message", (data) => {
+    const targetBox = currentMode === "group" ? groupChatBox : chatBox;
+    renderMessage(targetBox, data);
   });
 
   function sendMessage() {
@@ -392,6 +545,17 @@
   }
   sendBtn.addEventListener("click", sendMessage);
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+
+  function sendGroupMessage() {
+    const text = groupMsgInput.value.trim();
+    if (!text) return;
+    socket.emit("send_message", { text, ...getMyColors() });
+    groupMsgInput.value = "";
+  }
+  groupSendBtn.addEventListener("click", sendGroupMessage);
+  groupMsgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendGroupMessage(); });
+
+  // ---------- スピーカーミュート(個人/ランダム用。settings.js から参照) ----------
 </script>
 <script src="/settings.js"></script>
 <script>
