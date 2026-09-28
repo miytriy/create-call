@@ -84,8 +84,9 @@ io.on("connection", (socket) => {
 
       if (newMembers.length === 2) {
         const [a, b] = newMembers;
-        io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name });
-        io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name });
+        // initiator: 通話のoffer(発信)側。先に入った a が担当
+        io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name, initiator: true });
+        io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name, initiator: false });
         console.log(`[match] code=${roomCode} ${a.name} <-> ${b.name}`);
       } else {
         socket.emit("waiting", { code: roomCode });
@@ -118,6 +119,24 @@ io.on("connection", (socket) => {
       });
     } catch (err) {
       console.error("[send_message error]", err);
+    }
+  });
+
+  // WebRTC シグナリング: offer / answer / ICE candidate を相手に中継するだけ
+  socket.on("signal", (payload) => {
+    try {
+      if (!payload || !["offer", "answer", "candidate"].includes(payload.type)) return;
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const partner = (rooms.get(code) || []).find((m) => m.socketId !== socket.id);
+      if (!partner) return;
+      io.to(partner.socketId).emit("signal", {
+        type: payload.type,
+        sdp: payload.sdp,
+        candidate: payload.candidate,
+      });
+    } catch (err) {
+      console.error("[signal error]", err);
     }
   });
 
