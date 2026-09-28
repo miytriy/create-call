@@ -15,6 +15,7 @@
   const DEFAULTS = {
     theme: "system", notify: false,
     micId: "", spkId: "", micVol: 100, spkVol: 100, echo: true, noise: true,
+    joinMicMute: false, joinSpkMute: false,
   };
   let S = { ...DEFAULTS };
   try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch {}
@@ -158,6 +159,38 @@
     $("micTestBtn").textContent = "テスト開始";
   }
   $("micTestBtn").onclick = () => (test ? stopMicTest() : startMicTest());
+
+  // ---------- 入室時ミュート / スピーカーミュート ----------
+  // 入室前の画面と音声タブのチェックボックスは同じ設定を共有する
+  for (const [key, ids] of [
+    ["joinMicMute", ["preMic", "joinMicMute"]],
+    ["joinSpkMute", ["preSpk", "joinSpkMute"]],
+  ]) {
+    const els = ids.map($);
+    els.forEach((el) => {
+      el.checked = S[key];
+      el.onchange = () => {
+        S[key] = el.checked;
+        save();
+        els.forEach((o) => (o.checked = S[key]));
+      };
+    });
+  }
+
+  const spkBtn = $("spkMuteBtn");
+  let spkMuted = false;
+  function setSpkMuted(v) {
+    spkMuted = v;
+    remoteAudio.muted = v;
+    spkBtn.textContent = v ? "🔇 スピーカーのミュート解除" : "🔊 スピーカーをミュートする";
+  }
+  spkBtn.onclick = () => setSpkMuted(!spkMuted);
+
+  // index.html 側の matched 処理(ミュート状態のリセット)の後に実行される
+  socket.on("matched", () => {
+    if (S.joinMicMute) $("muteBtn").click();
+    setSpkMuted(S.joinSpkMute);
+  });
 
   // ---------- アカウント (Firebase Authentication) ----------
   let fb = null;
