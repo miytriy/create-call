@@ -204,6 +204,9 @@
         <input type="color" id="myMsgColor" style="height:40px; padding:2px;">
         <button id="myMsgReset" class="secondary">リセット</button>
       </div>
+
+      <label class="sw"><input type="checkbox" id="blockPartnerColor">相手のカラー変更をブロック</label>
+      <p class="hint" style="margin-top:-8px;">オンにすると、相手が設定した名前や文字の色は表示せず、標準の色で表示します</p>
     </div>
   </div>
 </div>
@@ -313,10 +316,45 @@
     });
   });
 
-  socket.on("chat_message", ({ from, name, text }) => {
+  // ---- 相手のカラー表示(ブロック設定つき) ----
+  const HEX_RE = /^#[0-9a-f]{6}$/i;
+  const isColorBlocked = () => {
+    try { return localStorage.getItem("blockPartnerColor") === "1"; } catch { return false; }
+  };
+  // 相手のメッセージに、受け取った色を反映する(ブロック中は標準色に戻す)
+  function applyPartnerColors() {
+    const blocked = isColorBlocked();
+    chatBox.querySelectorAll(".msg.them").forEach((el) => {
+      const nc = el.dataset.nameColor;
+      const tc = el.dataset.textColor;
+      const who = el.querySelector(".who");
+      el.style.color = !blocked && tc ? tc : "";
+      if (who) {
+        who.style.color = !blocked && nc ? nc : "";
+        who.style.opacity = !blocked && nc ? "1" : "";
+      }
+    });
+  }
+  // 自分が設定している色(送信時に相手へ渡す)
+  function getMyColors() {
+    const get = (k) => {
+      try {
+        const v = localStorage.getItem(k);
+        return HEX_RE.test(v || "") ? v : null;
+      } catch { return null; }
+    };
+    return { nameColor: get("myNameColor"), textColor: get("myMsgColor") };
+  }
+
+  socket.on("chat_message", ({ from, name, text, nameColor, textColor }) => {
     const div = document.createElement("div");
     const mine = from === socket.id;
     div.className = "msg " + (mine ? "me" : "them");
+    // 相手から届いた色は、形式(#rrggbb)を確認できたものだけ使う
+    if (!mine) {
+      if (HEX_RE.test(nameColor || "")) div.dataset.nameColor = nameColor;
+      if (HEX_RE.test(textColor || "")) div.dataset.textColor = textColor;
+    }
     // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
     const who = document.createElement("span");
     who.className = "who";
@@ -324,6 +362,7 @@
     div.appendChild(who);
     div.appendChild(document.createTextNode(text));
     chatBox.appendChild(div);
+    if (!mine) applyPartnerColors();
     chatBox.scrollTop = chatBox.scrollHeight;
   });
 
@@ -339,7 +378,7 @@
   function sendMessage() {
     const text = msgInput.value.trim();
     if (!text) return;
-    socket.emit("send_message", { text });
+    socket.emit("send_message", { text, ...getMyColors() });
     msgInput.value = "";
   }
   sendBtn.addEventListener("click", sendMessage);
@@ -393,6 +432,14 @@
                inputId: 'myNameColor', resetId: 'myNameReset' });
   setupColor({ key: 'myMsgColor', attr: 'data-custom-me', cssVar: '--my-msg-color',
                inputId: 'myMsgColor', resetId: 'myMsgReset' });
+
+  // 相手のカラー変更をブロック(切り替えると表示中のメッセージにもすぐ反映)
+  const blockEl = document.getElementById('blockPartnerColor');
+  blockEl.checked = load('blockPartnerColor') === '1';
+  blockEl.addEventListener('change', () => {
+    save('blockPartnerColor', blockEl.checked ? '1' : null);
+    applyPartnerColors();
+  });
 })();
 </script>
 </body>
