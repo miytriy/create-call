@@ -3,9 +3,9 @@
 (() => {
   // ★ Firebase コンソール(Authentication)で取得した値に置き換えてください
   const FIREBASE_CONFIG = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_PROJECT.firebaseapp.com",
-    projectId: "YOUR_PROJECT",
+       apiKey: "AIzaSyBwg8F35Joy0frgQ0yohf-nTobjc1BUgzc",
+   authDomain: "new-world-ae4c0.firebaseapp.com",
+   projectId: "new-world-ae4c0",
   };
   const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
   const configured = !FIREBASE_CONFIG.apiKey.startsWith("YOUR_");
