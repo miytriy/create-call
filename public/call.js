@@ -49,18 +49,27 @@ const VoiceCall = (() => {
     }
   }
 
-  async function start(sock, initiator, audioEl) {
+  async function start(sock, initiator, audioEl, onStateChange) {
     stop();
     socket = sock;
     pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
     const current = pc;
 
+    pc.oniceconnectionstatechange = () => {
+      console.log("[VoiceCall] ice:", current.iceConnectionState);
+      if (onStateChange) onStateChange(current.iceConnectionState);
+    };
     pc.onicecandidate = (e) => {
       if (e.candidate) socket.emit("signal", { type: "candidate", candidate: e.candidate });
     };
     pc.ontrack = (e) => {
+      console.log("[VoiceCall] 相手の音声トラックを受信");
+      if (onStateChange) onStateChange("track-received");
       audioEl.srcObject = e.streams[0];
-      audioEl.play().catch(() => {});
+      audioEl.play().catch((err) => {
+        console.warn("[VoiceCall] 自動再生がブロックされました", err);
+        if (onStateChange) onStateChange("autoplay-blocked");
+      });
     };
 
     socket.on("signal", onSignal);
