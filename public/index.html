@@ -97,6 +97,7 @@
   .meter { height: 10px; background: #0f111a; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
   .meter i { display: block; height: 100%; width: 0; background: #e0a840; }
   .avatar { width: 56px; height: 56px; border-radius: 50%; margin-bottom: 8px; }
+  .sw input[type=checkbox] { width: auto; margin: 0 8px 0 0; padding: 0; }
   /* --- ライトテーマ --- */
   [data-theme="light"] body { background: #f3f2ee; color: #1d1f27; }
   [data-theme="light"] .card, [data-theme="light"] .sheet { background: #fff; border-color: #dcdad2; }
@@ -121,6 +122,9 @@
     <input id="codeInput" class="code" placeholder="例: ABC123" maxlength="8" />
     <p class="hint">同じコードを入力した人同士がマッチングされます</p>
 
+    <label class="sw"><input type="checkbox" id="preMic">マイクをミュートして入室</label>
+    <label class="sw"><input type="checkbox" id="preSpk">スピーカーをミュートして入室</label>
+
     <p class="error hidden" id="errorMsg"></p>
     <button id="joinBtn">入室する</button>
   </div>
@@ -136,6 +140,7 @@
     <p class="status" id="matchedStatus"></p>
     <p class="hint" id="callState" style="text-align:center;"></p>
     <button id="muteBtn" class="secondary">🎤 ミュートする</button>
+    <button id="spkMuteBtn" class="secondary">🔊 スピーカーをミュートする</button>
     <div id="chatBox" class="chat-box"></div>
     <div class="row" style="margin-bottom:8px;">
       <input id="msgInput" placeholder="メッセージを入力" />
@@ -173,6 +178,8 @@
       <label>スピーカー音量 <span id="spkVolVal"></span></label><input type="range" id="spkVol" min="0" max="100" />
       <label class="sw"><input type="checkbox" id="echoToggle">エコー除去</label>
       <label class="sw"><input type="checkbox" id="noiseToggle">ノイズ抑制</label>
+      <label class="sw"><input type="checkbox" id="joinMicMute">マイクをミュートして入室</label>
+      <label class="sw"><input type="checkbox" id="joinSpkMute">スピーカーをミュートして入室</label>
       <label>マイクテスト(話すとバーが動きます)</label>
       <div class="meter"><i id="meterBar"></i></div>
       <button id="micTestBtn" class="secondary">テスト開始</button>
