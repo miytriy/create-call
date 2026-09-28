@@ -107,6 +107,7 @@
 
   <div id="matched" class="hidden">
     <p class="status" id="matchedStatus"></p>
+    <p class="hint" id="callState" style="text-align:center;"></p>
     <button id="muteBtn" class="secondary">🎤 ミュートする</button>
     <div id="chatBox" class="chat-box"></div>
     <div class="row" style="margin-bottom:8px;">
@@ -213,7 +214,11 @@
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
     showScreen("matched");
-    VoiceCall.start(socket, initiator, remoteAudio).catch(() => {
+    const callState = document.getElementById("callState");
+    callState.textContent = "通話: 接続準備中…";
+    VoiceCall.start(socket, initiator, remoteAudio, (s) => {
+      callState.textContent = "通話: " + s;
+    }).catch(() => {
       matchedStatus.textContent += "(マイクが使えないため音声通話は無効です)";
     });
   });
