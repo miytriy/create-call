@@ -80,6 +80,33 @@
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
   .hidden { display: none; }
+  /* --- 設定パネル --- */
+  .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay.hidden { display: none; }
+  .sheet { width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #181b25; border: 1px solid #2a2e3a; border-radius: 16px 16px 0 0; padding: 16px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .x { width: auto; margin: 0; padding: 4px 10px; background: none; color: inherit; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+  .tab { flex: 1; margin: 0; padding: 8px 4px; font-size: 12px; background: #20242f; color: #c7cad3; border: 1px solid #33384a; }
+  .tab.on { background: #e0a840; color: #1a1206; border-color: #e0a840; }
+  .sheet select { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 10px; border: 1px solid #33384a; background: #0f111a; color: #fff; }
+  .sheet input[type=range] { padding: 0; border: 0; background: none; }
+  .sheet input[type=checkbox], .sheet input[type=radio] { width: auto; margin: 0 8px 0 0; }
+  .sw { display: flex; align-items: center; font-size: 14px; color: inherit; margin-bottom: 12px; }
+  .meter { height: 10px; background: #0f111a; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+  .meter i { display: block; height: 100%; width: 0; background: #e0a840; }
+  .avatar { width: 56px; height: 56px; border-radius: 50%; margin-bottom: 8px; }
+  /* --- ライトテーマ --- */
+  [data-theme="light"] body { background: #f3f2ee; color: #1d1f27; }
+  [data-theme="light"] .card, [data-theme="light"] .sheet { background: #fff; border-color: #dcdad2; }
+  [data-theme="light"] input, [data-theme="light"] .sheet select, [data-theme="light"] .code-badge, [data-theme="light"] .chat-box, [data-theme="light"] .meter { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
+  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
+  [data-theme="light"] .tab.on { background: #e0a840; color: #1a1206; }
+  [data-theme="light"] .msg.them { color: #3a3d48; }
+  [data-theme="light"] .msg.me { color: #a8710f; }
+  [data-theme="light"] label, [data-theme="light"] .hint { color: #6b6f7c; }
+  [data-theme="light"] .sw { color: #1d1f27; }
 </style>
 </head>
 <body>
@@ -118,6 +145,45 @@
   </div>
 
   <audio id="remoteAudio" autoplay></audio>
+</div>
+
+<button id="gearBtn" class="gear" aria-label="設定">⚙️</button>
+<div id="settingsOverlay" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head"><b>設定</b><button id="closeSettings" class="x">✕</button></div>
+    <div class="tabs">
+      <button class="tab on" data-tab="account">アカウント</button>
+      <button class="tab" data-tab="notify">通知</button>
+      <button class="tab" data-tab="audio">音声</button>
+      <button class="tab" data-tab="theme">テーマ</button>
+    </div>
+
+    <div class="panel" data-panel="account"><div id="accountBody"></div></div>
+
+    <div class="panel hidden" data-panel="notify">
+      <label class="sw"><input type="checkbox" id="notifyToggle">デスクトップ・プッシュ通知</label>
+      <p class="hint" id="notifyHint" style="margin:0;"></p>
+    </div>
+
+    <div class="panel hidden" data-panel="audio">
+      <label>マイク</label><select id="micSel"></select>
+      <label>マイク音量 <span id="micVolVal"></span></label><input type="range" id="micVol" min="0" max="200" />
+      <label>スピーカー</label><select id="spkSel"></select>
+      <p class="hint" id="spkHint" style="margin-top:-8px;"></p>
+      <label>スピーカー音量 <span id="spkVolVal"></span></label><input type="range" id="spkVol" min="0" max="100" />
+      <label class="sw"><input type="checkbox" id="echoToggle">エコー除去</label>
+      <label class="sw"><input type="checkbox" id="noiseToggle">ノイズ抑制</label>
+      <label>マイクテスト(話すとバーが動きます)</label>
+      <div class="meter"><i id="meterBar"></i></div>
+      <button id="micTestBtn" class="secondary">テスト開始</button>
+    </div>
+
+    <div class="panel hidden" data-panel="theme">
+      <label class="sw"><input type="radio" name="theme" value="system">端末の設定に合わせる</label>
+      <label class="sw"><input type="radio" name="theme" value="dark">ダーク</label>
+      <label class="sw"><input type="radio" name="theme" value="light">ライト</label>
+    </div>
+  </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
@@ -217,9 +283,11 @@
     const callState = document.getElementById("callState");
     callState.textContent = "通話: 接続準備中…";
     VoiceCall.start(socket, initiator, remoteAudio, (s) => {
-      callState.textContent = "通話: " + s;
-    }).catch(() => {
-      matchedStatus.textContent += "(マイクが使えないため音声通話は無効です)";
+      callState.textContent =
+        s === "no-mic" ? "通話: マイクなし(相手の声だけ聞こえます)" : "通話: " + s;
+    }).catch((e) => {
+      console.error(e);
+      callState.textContent = "通話: 接続に失敗しました";
     });
   });
 
@@ -255,5 +323,6 @@
   sendBtn.addEventListener("click", sendMessage);
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
 </script>
+<script src="/settings.js"></script>
 </body>
 </html>
