@@ -1,19 +1,11 @@
 // =============================================================
-// 部屋コード方式マッチング サーバー
+// 部屋コード方式マッチング サーバー(バグ修正版)
 // -------------------------------------------------------------
-// アーキテクチャ概要:
-//   1) クライアントが「表示名」と「部屋コード」を送って join_room する。
-//   2) サーバーは rooms(Map: コード -> 参加者配列) を見て、
-//      同じコードの部屋がまだ無ければ新規作成して1人目として入れる。
-//   3) 同じコードの部屋に2人目が来たら、その時点で socket.io の room
-//      (コード自体をroom名として使う) に両方を入れ、両者に matched を通知。
-//   4) 3人目以降が同じコードで来た場合は room_full を返す(1対1限定)。
-//   5) 誰かが退出/切断したら、残った側に partner_left を通知し、
-//      部屋を空にする(その後また誰かがそのコードで入れば1人目に戻る)。
-//
-// 状態はメモリ上に保持するデモ実装です。
-// 本番で複数サーバーに分散させる場合は Redis 等の外部ストアで
-// rooms を共有する必要があります。
+// 修正点:
+//   1) join_room 時に、すでに部屋にいる場合は先に退出させる
+//      (二重参加・自分自身とのマッチを防止)
+//   2) イベントの引数が未定義/不正でもサーバーが落ちないようにする
+//   3) send_message の入力チェック(文字列・空文字)を追加
 // =============================================================
 
 const express = require("express");
@@ -27,16 +19,13 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// --- 部屋の状態管理 -----------------------------------------------
-
 // code -> [{ socketId, name }, ...]  (最大2人)
 const rooms = new Map();
 
-// socketId -> 現在参加している部屋コード（未参加なら未設定）
+// socketId -> 現在参加している部屋コード
 const socketRoom = new Map();
 
 function normalizeCode(raw) {
-  // 全角英数字(日本語キーボードで入力しがち)を半角に変換してから正規化する
   const halfWidth = String(raw || "").replace(/[\uFF01-\uFF5E]/g, (ch) =>
     String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
   );
@@ -64,50 +53,72 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
 }
 
 io.on("connection", (socket) => {
-  socket.on("join_room", ({ displayName, code }) => {
-    const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
-    const roomCode = normalizeCode(code);
+  socket.on("join_room", (payload) => {
+    try {
+      const { displayName, code } =
+        payload && typeof payload === "object" ? payload : {};
 
-    if (!roomCode) {
-      socket.emit("join_error", { message: "部屋コードを入力してください" });
-      return;
-    }
+      const name =
+        String(displayName || "名無し").trim().slice(0, 20) || "名無し";
+      const roomCode = normalizeCode(code);
 
-    const members = rooms.get(roomCode) || [];
+      if (!roomCode) {
+        socket.emit("join_error", { message: "部屋コードを入力してください" });
+        return;
+      }
 
-    if (members.length >= 2) {
-      socket.emit("join_error", { message: "この部屋はすでに満室です" });
-      return;
-    }
+      // 修正1: すでに部屋にいるなら先に退出(二重参加防止)
+      leaveCurrentRoom(socket, true);
 
-    const newMembers = [...members, { socketId: socket.id, name }];
-    rooms.set(roomCode, newMembers);
-    socketRoom.set(socket.id, roomCode);
-    socket.join(roomCode);
+      const members = rooms.get(roomCode) || [];
 
-    if (newMembers.length === 2) {
-      const [a, b] = newMembers;
-      io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name });
-      io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name });
-      console.log(`[match] code=${roomCode} ${a.name} <-> ${b.name}`);
-    } else {
-      socket.emit("waiting", { code: roomCode });
-      console.log(`[queue] ${name} が code=${roomCode} で待機中`);
+      if (members.length >= 2) {
+        socket.emit("join_error", { message: "この部屋はすでに満室です" });
+        return;
+      }
+
+      const newMembers = [...members, { socketId: socket.id, name }];
+      rooms.set(roomCode, newMembers);
+      socketRoom.set(socket.id, roomCode);
+      socket.join(roomCode);
+
+      if (newMembers.length === 2) {
+        const [a, b] = newMembers;
+        io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name });
+        io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name });
+        console.log(`[match] code=${roomCode} ${a.name} <-> ${b.name}`);
+      } else {
+        socket.emit("waiting", { code: roomCode });
+        console.log(`[queue] ${name} が code=${roomCode} で待機中`);
+      }
+    } catch (err) {
+      console.error("[join_room error]", err);
+      socket.emit("join_error", { message: "参加中にエラーが発生しました" });
     }
   });
 
-  socket.on("send_message", ({ text }) => {
-    const code = socketRoom.get(socket.id);
-    if (!code) return;
-    const members = rooms.get(code) || [];
-    const me = members.find((m) => m.socketId === socket.id);
-    if (!me) return;
-    io.to(code).emit("chat_message", {
-      from: socket.id,
-      name: me.name,
-      text: String(text).slice(0, 1000),
-      ts: Date.now(),
-    });
+  socket.on("send_message", (payload) => {
+    try {
+      // 修正3: 入力チェック
+      const text = payload && typeof payload.text === "string" ? payload.text : "";
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const members = rooms.get(code) || [];
+      const me = members.find((m) => m.socketId === socket.id);
+      if (!me) return;
+
+      io.to(code).emit("chat_message", {
+        from: socket.id,
+        name: me.name,
+        text: trimmed.slice(0, 1000),
+        ts: Date.now(),
+      });
+    } catch (err) {
+      console.error("[send_message error]", err);
+    }
   });
 
   socket.on("leave_room", () => {
