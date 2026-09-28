@@ -107,6 +107,7 @@
 
   <div id="matched" class="hidden">
     <p class="status" id="matchedStatus"></p>
+    <button id="muteBtn" class="secondary">🎤 ミュートする</button>
     <div id="chatBox" class="chat-box"></div>
     <div class="row" style="margin-bottom:8px;">
       <input id="msgInput" placeholder="メッセージを入力" />
@@ -114,9 +115,12 @@
     </div>
     <button id="leaveBtn" class="secondary">退出する</button>
   </div>
+
+  <audio id="remoteAudio" autoplay></audio>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/call.js"></script>
 <script>
   const socket = io();
 
@@ -135,8 +139,11 @@
   const msgInput = document.getElementById("msgInput");
   const sendBtn = document.getElementById("sendBtn");
   const leaveBtn = document.getElementById("leaveBtn");
+  const muteBtn = document.getElementById("muteBtn");
+  const remoteAudio = document.getElementById("remoteAudio");
 
-  // 日本語キーボードの全角英数字を半角に変換(サーバー側と同じロジック)
+  let muted = false;
+
   function normalizeCode(raw) {
     const halfWidth = raw.replace(/[\uFF01-\uFF5E]/g, (ch) =>
       String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
@@ -180,9 +187,16 @@
   });
 
   leaveBtn.addEventListener("click", () => {
+    VoiceCall.stop();
     socket.emit("leave_room");
     chatBox.innerHTML = "";
     showScreen("setup");
+  });
+
+  muteBtn.addEventListener("click", () => {
+    muted = !muted;
+    VoiceCall.setMuted(muted);
+    muteBtn.textContent = muted ? "🔇 ミュート解除" : "🎤 ミュートする";
   });
 
   socket.on("join_error", ({ message }) => {
@@ -194,24 +208,37 @@
     showScreen("waiting");
   });
 
-  socket.on("matched", ({ partnerName }) => {
+  socket.on("matched", ({ partnerName, initiator }) => {
     matchedStatus.textContent = `✅ ${partnerName} さんとマッチングしました！`;
+    muted = false;
+    muteBtn.textContent = "🎤 ミュートする";
     showScreen("matched");
+    VoiceCall.start(socket, initiator, remoteAudio).catch(() => {
+      matchedStatus.textContent += "(マイクが使えないため音声通話は無効です)";
+    });
   });
 
   socket.on("chat_message", ({ from, name, text }) => {
     const div = document.createElement("div");
     const mine = from === socket.id;
     div.className = "msg " + (mine ? "me" : "them");
-    div.innerHTML = `<span class="who">${mine ? "自分" : name}</span>${text}`;
+    // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = mine ? "自分" : name;
+    div.appendChild(who);
+    div.appendChild(document.createTextNode(text));
     chatBox.appendChild(div);
     chatBox.scrollTop = chatBox.scrollHeight;
   });
 
   socket.on("partner_left", () => {
-    matchedStatus.textContent = "相手が退出しました。もう一度マッチングできます。";
+    VoiceCall.stop();
+    // サーバー側の部屋にも自分が残っているので、明示的に退出しておく
+    socket.emit("leave_room");
     chatBox.innerHTML = "";
     showScreen("setup");
+    showError("相手が退出しました。もう一度入室できます。");
   });
 
   function sendMessage() {
