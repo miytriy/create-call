@@ -94,7 +94,7 @@ io.on("connection", (socket) => {
       const roomType = mode === "group" ? "group" : "personal";
 
       if (!roomCode) {
-        socket.emit("join_error", { message: "部屋コードを入力してください" });
+        socket.emit("join_error", { code: "need_code", message: "部屋コードを入力してください" });
         return;
       }
 
@@ -104,7 +104,7 @@ io.on("connection", (socket) => {
       let room = rooms.get(roomCode);
 
       if (room && room.type !== roomType) {
-        socket.emit("join_error", { message: "このコードは別の種類のチャットで使用されています" });
+        socket.emit("join_error", { code: "wrong_type", message: "このコードは別の種類のチャットで使用されています" });
         return;
       }
 
@@ -120,6 +120,7 @@ io.on("connection", (socket) => {
 
       if (room.members.length >= room.limit) {
         socket.emit("join_error", {
+          code: roomType === "group" ? "full_group" : "full_personal",
           message: roomType === "group" ? "このグループは満員です" : "この部屋はすでに満室です",
         });
         return;
