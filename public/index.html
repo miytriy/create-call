@@ -1,11 +1,20 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" translate="no">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>部屋コード マッチング</title>
+<meta name="color-scheme" content="light dark" />
+<meta name="google" content="notranslate" />
+<title>通話・チャット</title>
 <style>
   * { box-sizing: border-box; }
+  html {
+    /* Android系ブラウザの自動ダーク変換を止め、背景色も明示する */
+    color-scheme: dark;
+    background: #12141c;
+  }
+  [data-theme="light"] { color-scheme: light; background: #f3f2ee; }
+  [data-theme="dark"] { color-scheme: dark; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: #12141c;
@@ -80,6 +89,67 @@
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
   .hidden { display: none; }
+  /* --- モード選択画面 --- */
+  .mode-card {
+    width: 100%; text-align: left; padding: 14px; border-radius: 14px;
+    background: #20242f; border: 1px solid #33384a; color: inherit;
+    cursor: pointer; margin-bottom: 10px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .mode-card .mc-icon { font-size: 22px; line-height: 1.2; }
+  .mode-card .mc-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+  .mode-card .mc-desc { font-size: 12px; color: #8a8f9e; }
+  .back-link {
+    width: auto; margin: 0 0 14px; padding: 6px 12px; background: none; color: inherit;
+    font-size: 12px; border: 1px solid #33384a; border-radius: 8px;
+  }
+  .member-list { font-size: 12px; color: #8a8f9e; margin: -6px 0 10px; word-break: break-all; }
+  /* --- 個人チャットのメッセージ画面 --- */
+  .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #2a2e3a; }
+  .chat-header-info { flex: 1; min-width: 0; }
+  .chat-header-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chat-header-sub { font-size: 11px; color: #8a8f9e; }
+  .icon-btn {
+    width: 36px; height: 36px; flex: none; margin: 0; padding: 0;
+    border-radius: 50%; background: #20242f; border: 1px solid #33384a; color: inherit; font-size: 16px;
+  }
+  .mute-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .mute-row button { margin-bottom: 0; font-size: 12px; padding: 8px 6px; }
+  .chat-box-tall { height: 320px; }
+  .msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .avatar-circle {
+    width: 22px; height: 22px; border-radius: 50%; flex: none;
+    background: #33384a; color: #fff; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .bubble-row { display: flex; align-items: flex-end; gap: 6px; }
+  .msg.me .bubble-row { justify-content: flex-end; }
+  .bubble { max-width: var(--bubble-max, 78%); padding: 8px 12px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-break: break-word; background: #20242f; text-align: left; }
+  .chat-box-tall .msg { margin-bottom: 10px; }
+  .msg.them .bubble { border-bottom-left-radius: 4px; }
+  .msg.me .bubble { background: #86dd86; color: #10320f; border-bottom-right-radius: 4px; }
+  .msg-time { font-size: 10px; color: #5f6473; white-space: nowrap; flex: none; }
+  .system-msg { text-align: center; font-size: 11px; color: #8a8f9e; margin: 4px 0 12px; }
+  .composer { display: flex; align-items: center; gap: 8px; }
+  .composer input { flex: 1; margin-bottom: 0; border-radius: 999px; padding: 10px 16px; }
+  .send-btn { width: 42px; height: 42px; flex: none; margin: 0; padding: 0; border-radius: 50%; font-size: 16px; }
+  [data-theme="light"] .icon-btn { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
+  [data-theme="light"] .chat-header { border-color: #dcdad2; }
+  [data-theme="light"] .chat-header-sub, [data-theme="light"] .system-msg { color: #6b6f7c; }
+  [data-theme="light"] .avatar-circle { background: #d4d2c8; color: #3a3d48; }
+  [data-theme="light"] .msg.them .bubble { background: #f7f6f2; color: #1d1f27; }
+  [data-theme="light"] .msg.me .bubble { background: #7fd67f; color: #0d290d; }
+  /* --- 待機中の演出 --- */
+  .spinner {
+    width: 44px; height: 44px; margin: 4px auto 16px;
+    border: 4px solid #33384a; border-top-color: #e0a840;
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dots span { animation: dotFade 1.4s infinite; opacity: 0; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dotFade { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+  [data-theme="light"] .spinner { border-color: #d4d2c8; border-top-color: #e0a840; }
   /* --- 設定パネル --- */
   .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
@@ -102,54 +172,124 @@
   [data-theme="light"] body { background: #f3f2ee; color: #1d1f27; }
   [data-theme="light"] .card, [data-theme="light"] .sheet { background: #fff; border-color: #dcdad2; }
   [data-theme="light"] input, [data-theme="light"] .sheet select, [data-theme="light"] .code-badge, [data-theme="light"] .chat-box, [data-theme="light"] .meter { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
-  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
+  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear, [data-theme="light"] .mode-card, [data-theme="light"] .back-link { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
   [data-theme="light"] .tab.on { background: #e0a840; color: #1a1206; }
   [data-theme="light"] .msg.them { color: #3a3d48; }
   [data-theme="light"] .msg.me { color: #a8710f; }
-  [data-theme="light"] label, [data-theme="light"] .hint { color: #6b6f7c; }
+  [data-theme="light"] label, [data-theme="light"] .hint, [data-theme="light"] .mode-card .mc-desc, [data-theme="light"] .member-list { color: #6b6f7c; }
   [data-theme="light"] .sw { color: #1d1f27; }
   /* --- 自分のチャットのカスタム色(指定があるときだけ有効) --- */
-  [data-custom-me] .msg.me { color: var(--my-msg-color); }
-  [data-custom-name] .msg.me .who { color: var(--my-name-color); opacity: 1; }
+  [data-custom-me] .msg.me .bubble { color: var(--my-msg-color); }
 </style>
 </head>
 <body>
 <div class="card">
-  <h1>🔑 部屋コード マッチング</h1>
+  <h1 id="mainTitle">💬 チャットを選ぶ</h1>
 
-  <div id="setup">
+  <!-- ① モード選択 -->
+  <div id="modeSelect">
+    <button class="mode-card" data-mode="personal">
+      <span class="mc-icon">🔑</span>
+      <span>
+        <span class="mc-title">個人チャット</span><br>
+        <span class="mc-desc">部屋コードを共有した1人と、音声通話+チャット</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="group">
+      <span class="mc-icon">👥</span>
+      <span>
+        <span class="mc-title">グループチャット</span><br>
+        <span class="mc-desc">部屋コードを知っている複数人でテキストチャット(人数上限あり)</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="random">
+      <span class="mc-icon">🎲</span>
+      <span>
+        <span class="mc-title">ランダムチャット</span><br>
+        <span class="mc-desc">コード不要。待機中の誰かと自動でマッチングし、音声通話+チャット</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- ② 個人/グループ:コード入力 -->
+  <div id="codeSetup" class="hidden">
+    <button class="back-link" data-back="1">← 戻る</button>
+
     <label>表示名</label>
-    <input id="nameInput" placeholder="例: ゆめみ" maxlength="20" />
+    <input id="nameInput" placeholder="例: ABC" maxlength="20" />
 
     <label>部屋コード</label>
     <input id="codeInput" class="code" placeholder="例: ABC123" maxlength="8" />
     <p class="hint">同じコードを入力した人同士がマッチングされます</p>
 
-    <label class="sw"><input type="checkbox" id="preMic">マイクをミュートして入室</label>
-    <label class="sw"><input type="checkbox" id="preSpk">スピーカーをミュートして入室</label>
+    <div id="groupOptions" class="hidden">
+      <label>人数上限(2〜20人・部屋を新規に作る場合のみ有効)</label>
+      <input id="groupLimitInput" type="number" min="2" max="20" value="10" />
+    </div>
 
-    <p class="error hidden" id="errorMsg"></p>
-    <button id="joinBtn">入室する</button>
+    <div id="personalOptions">
+      <label class="sw"><input type="checkbox" id="preMic">マイクをミュートして入室</label>
+      <label class="sw"><input type="checkbox" id="preSpk">スピーカーをミュートして入室</label>
+    </div>
+
+    <p class="error hidden" id="codeError"></p>
+    <button id="codeJoinBtn">入室する</button>
   </div>
 
+  <!-- ③ ランダムチャット:入室前 -->
+  <div id="randomSetup" class="hidden">
+    <button class="back-link" data-back="1">← 戻る</button>
+
+    <label>表示名</label>
+    <input id="randomNameInput" placeholder="例: ABC" maxlength="20" />
+    <p class="hint">ボタンを押すと、同じタイミングで待っている誰かと自動でマッチングします</p>
+
+    <label class="sw"><input type="checkbox" id="randomPreMic">マイクをミュートして入室</label>
+    <label class="sw"><input type="checkbox" id="randomPreSpk">スピーカーをミュートして入室</label>
+
+    <p class="error hidden" id="randomError"></p>
+    <button id="randomJoinBtn">ランダムマッチング開始</button>
+  </div>
+
+  <!-- ④ 待機中(個人/ランダム共通) -->
   <div id="waiting" class="hidden">
-    <p class="status">相手の入室を待っています…</p>
-    <div class="code-badge" id="waitingCode"></div>
-    <p class="hint" style="text-align:center;">このコードを相手に共有してください</p>
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="status" id="waitingStatus">相手の入室を待っています<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
+    <div class="code-badge hidden" id="waitingCode"></div>
+    <p class="hint hidden" id="waitingHint" style="text-align:center;">このコードを相手に共有してください</p>
     <button id="cancelBtn" class="secondary">キャンセル</button>
   </div>
 
-  <div id="matched" class="hidden">
-    <p class="status" id="matchedStatus"></p>
-    <p class="hint" id="callState" style="text-align:center;"></p>
-    <button id="muteBtn" class="secondary">🎤 ミュートする</button>
-    <button id="spkMuteBtn" class="secondary">🔊 スピーカーをミュートする</button>
-    <div id="chatBox" class="chat-box"></div>
-    <div class="row" style="margin-bottom:8px;">
-      <input id="msgInput" placeholder="メッセージを入力" />
-      <button id="sendBtn">送信</button>
+  <!-- ⑤ 通話中(個人/ランダム共通:音声+チャット) -->
+  <div id="matched" class="hidden chat-screen">
+    <div class="chat-header">
+      <button id="leaveBtn" class="icon-btn" aria-label="退出する">←</button>
+      <div class="chat-header-info">
+        <div class="chat-header-name" id="matchedStatus"></div>
+        <div class="chat-header-sub" id="callState"></div>
+      </div>
     </div>
-    <button id="leaveBtn" class="secondary">退出する</button>
+    <div class="mute-row">
+      <button id="muteBtn" class="secondary">🎤 ミュートする</button>
+      <button id="spkMuteBtn" class="secondary">🔊 スピーカーをミュートする</button>
+    </div>
+    <div id="chatBox" class="chat-box chat-box-tall"></div>
+    <div class="composer">
+      <input id="msgInput" placeholder="メッセージを入力" />
+      <button id="sendBtn" class="send-btn" aria-label="送信">➤</button>
+    </div>
+  </div>
+
+  <!-- ⑥ グループチャット中(テキストのみ) -->
+  <div id="groupRoom" class="hidden">
+    <p class="status" id="groupStatus"></p>
+    <p class="member-list" id="groupMembers"></p>
+    <div id="groupChatBox" class="chat-box"></div>
+    <div class="row" style="margin-bottom:8px;">
+      <input id="groupMsgInput" placeholder="メッセージを入力" />
+      <button id="groupSendBtn">送信</button>
+    </div>
+    <button id="groupLeaveBtn" class="secondary">退出する</button>
   </div>
 
   <audio id="remoteAudio" autoplay></audio>
@@ -204,6 +344,9 @@
         <input type="color" id="myMsgColor" style="height:40px; padding:2px;">
         <button id="myMsgReset" class="secondary">リセット</button>
       </div>
+
+      <label class="sw"><input type="checkbox" id="blockPartnerColor">相手のカラー変更をブロック</label>
+      <p class="hint" style="margin-top:-8px;">オンにすると、相手が設定した名前や文字の色は表示せず、標準の色で表示します</p>
     </div>
   </div>
 </div>
@@ -213,25 +356,41 @@
 <script>
   const socket = io();
 
-  const setupEl = document.getElementById("setup");
-  const waitingEl = document.getElementById("waiting");
-  const matchedEl = document.getElementById("matched");
+  // ---------- 画面切り替え ----------
+  const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom"];
+  const mainTitle = document.getElementById("mainTitle");
+  function showScreen(name, title) {
+    SCREENS.forEach((id) => document.getElementById(id).classList.toggle("hidden", id !== name));
+    if (title) mainTitle.textContent = title;
+  }
 
+  let currentMode = null; // 'personal' | 'group' | 'random'
+
+  document.querySelectorAll(".mode-card").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentMode = btn.dataset.mode;
+      document.getElementById("codeError").classList.add("hidden");
+      document.getElementById("randomError").classList.add("hidden");
+      if (currentMode === "random") {
+        showScreen("randomSetup", "🎲 ランダムチャット");
+      } else {
+        document.getElementById("personalOptions").classList.toggle("hidden", currentMode !== "personal");
+        document.getElementById("groupOptions").classList.toggle("hidden", currentMode !== "group");
+        showScreen("codeSetup", currentMode === "group" ? "👥 グループチャット" : "🔑 個人チャット");
+      }
+    });
+  });
+
+  document.querySelectorAll("[data-back]").forEach((btn) => {
+    btn.addEventListener("click", () => showScreen("modeSelect", "💬 チャットを選ぶ"));
+  });
+
+  // ---------- 個人/グループ:コード入室 ----------
   const nameInput = document.getElementById("nameInput");
   const codeInput = document.getElementById("codeInput");
-  const errorMsg = document.getElementById("errorMsg");
-  const joinBtn = document.getElementById("joinBtn");
-  const cancelBtn = document.getElementById("cancelBtn");
-  const waitingCode = document.getElementById("waitingCode");
-  const matchedStatus = document.getElementById("matchedStatus");
-  const chatBox = document.getElementById("chatBox");
-  const msgInput = document.getElementById("msgInput");
-  const sendBtn = document.getElementById("sendBtn");
-  const leaveBtn = document.getElementById("leaveBtn");
-  const muteBtn = document.getElementById("muteBtn");
-  const remoteAudio = document.getElementById("remoteAudio");
-
-  let muted = false;
+  const codeError = document.getElementById("codeError");
+  const codeJoinBtn = document.getElementById("codeJoinBtn");
+  const groupLimitInput = document.getElementById("groupLimitInput");
 
   function normalizeCode(raw) {
     const halfWidth = raw.replace(/[\uFF01-\uFF5E]/g, (ch) =>
@@ -243,43 +402,95 @@
   codeInput.addEventListener("input", () => {
     const cursorAtEnd = codeInput.selectionStart === codeInput.value.length;
     codeInput.value = normalizeCode(codeInput.value);
-    if (cursorAtEnd) {
-      codeInput.selectionStart = codeInput.selectionEnd = codeInput.value.length;
-    }
+    if (cursorAtEnd) codeInput.selectionStart = codeInput.selectionEnd = codeInput.value.length;
   });
 
-  function showScreen(name) {
-    setupEl.classList.toggle("hidden", name !== "setup");
-    waitingEl.classList.toggle("hidden", name !== "waiting");
-    matchedEl.classList.toggle("hidden", name !== "matched");
+  function showCodeError(text) {
+    codeError.textContent = text;
+    codeError.classList.toggle("hidden", !text);
   }
 
-  function showError(text) {
-    errorMsg.textContent = text;
-    errorMsg.classList.toggle("hidden", !text);
-  }
-
-  joinBtn.addEventListener("click", () => {
+  codeJoinBtn.addEventListener("click", () => {
     const displayName = nameInput.value.trim() || "名無し";
     const code = normalizeCode(codeInput.value);
-    if (!code) {
-      showError("部屋コードを入力してください");
-      return;
+    if (!code) { showCodeError("部屋コードを入力してください"); return; }
+    showCodeError("");
+    const payload = { displayName, code, mode: currentMode };
+    if (currentMode === "group") {
+      let limit = parseInt(groupLimitInput.value, 10);
+      if (!Number.isFinite(limit)) limit = 10;
+      payload.limit = Math.min(20, Math.max(2, limit));
     }
-    showError("");
-    socket.emit("join_room", { displayName, code });
+    socket.emit("join_room", payload);
   });
+
+  // ---------- ランダムチャット:入室 ----------
+  const randomNameInput = document.getElementById("randomNameInput");
+  const randomError = document.getElementById("randomError");
+  const randomJoinBtn = document.getElementById("randomJoinBtn");
+
+  function showRandomError(text) {
+    randomError.textContent = text;
+    randomError.classList.toggle("hidden", !text);
+  }
+
+  randomJoinBtn.addEventListener("click", () => {
+    const displayName = randomNameInput.value.trim() || "名無し";
+    showRandomError("");
+    socket.emit("join_random", { displayName });
+  });
+
+  // ---------- 待機画面 ----------
+  const waitingCodeEl = document.getElementById("waitingCode");
+  const waitingHint = document.getElementById("waitingHint");
+  const waitingStatus = document.getElementById("waitingStatus");
+  const cancelBtn = document.getElementById("cancelBtn");
+
+  function renderWaiting(code) {
+    const text = currentMode === "random" ? "お相手を探しています" : "相手の入室を待っています";
+    waitingStatus.innerHTML = text + '<span class="dots"><span>.</span><span>.</span><span>.</span></span>';
+    if (code) {
+      waitingCodeEl.textContent = code;
+      waitingCodeEl.classList.remove("hidden");
+      waitingHint.classList.remove("hidden");
+    } else {
+      waitingCodeEl.classList.add("hidden");
+      waitingHint.classList.add("hidden");
+    }
+  }
 
   cancelBtn.addEventListener("click", () => {
     socket.emit("leave_room");
-    showScreen("setup");
+    showScreen("modeSelect", "💬 チャットを選ぶ");
   });
+
+  socket.on("join_error", ({ message }) => {
+    if (currentMode === "random") showRandomError(message);
+    else showCodeError(message);
+  });
+
+  socket.on("waiting", ({ code }) => {
+    renderWaiting(code);
+    showScreen("waiting");
+  });
+
+  // ---------- 通話中(個人/ランダム共通) ----------
+  const matchedStatus = document.getElementById("matchedStatus");
+  const chatBox = document.getElementById("chatBox");
+  const msgInput = document.getElementById("msgInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const leaveBtn = document.getElementById("leaveBtn");
+  const muteBtn = document.getElementById("muteBtn");
+  const remoteAudio = document.getElementById("remoteAudio");
+  const callState = document.getElementById("callState");
+
+  let muted = false;
 
   leaveBtn.addEventListener("click", () => {
     VoiceCall.stop();
     socket.emit("leave_room");
     chatBox.innerHTML = "";
-    showScreen("setup");
+    showScreen("modeSelect", "💬 チャットを選ぶ");
   });
 
   muteBtn.addEventListener("click", () => {
@@ -288,62 +499,179 @@
     muteBtn.textContent = muted ? "🔇 ミュート解除" : "🎤 ミュートする";
   });
 
-  socket.on("join_error", ({ message }) => {
-    showError(message);
-  });
-
-  socket.on("waiting", ({ code }) => {
-    waitingCode.textContent = code;
-    showScreen("waiting");
-  });
-
   socket.on("matched", ({ partnerName, initiator }) => {
-    matchedStatus.textContent = `✅ ${partnerName} さんとマッチングしました！`;
+    matchedStatus.textContent = partnerName;
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
-    showScreen("matched");
-    const callState = document.getElementById("callState");
+    chatBox.innerHTML = "";
+    showScreen("matched", currentMode === "random" ? "🎲 ランダムチャット" : "🔑 個人チャット");
+    addSystemMessage(chatBox, `✅ ${partnerName} さんとマッチングしました！`);
     callState.textContent = "通話: 接続準備中…";
     VoiceCall.start(socket, initiator, remoteAudio, (s) => {
-      callState.textContent =
-        s === "no-mic" ? "通話: マイクなし(相手の声だけ聞こえます)" : "通話: " + s;
+      callState.textContent = s === "no-mic" ? "通話: マイクなし(相手の声だけ聞こえます)" : "通話: " + s;
     }).catch((e) => {
       console.error(e);
       callState.textContent = "通話: 接続に失敗しました";
     });
   });
 
-  socket.on("chat_message", ({ from, name, text }) => {
-    const div = document.createElement("div");
-    const mine = from === socket.id;
-    div.className = "msg " + (mine ? "me" : "them");
-    // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
-    const who = document.createElement("span");
-    who.className = "who";
-    who.textContent = name;
-    div.appendChild(who);
-    div.appendChild(document.createTextNode(text));
-    chatBox.appendChild(div);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  });
-
   socket.on("partner_left", () => {
     VoiceCall.stop();
-    // サーバー側の部屋にも自分が残っているので、明示的に退出しておく
     socket.emit("leave_room");
     chatBox.innerHTML = "";
-    showScreen("setup");
-    showError("相手が退出しました。もう一度入室できます。");
+    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showCodeError("相手が退出しました。もう一度入室できます。");
+  });
+
+  // ---------- グループチャット中 ----------
+  const groupStatus = document.getElementById("groupStatus");
+  const groupMembers = document.getElementById("groupMembers");
+  const groupChatBox = document.getElementById("groupChatBox");
+  const groupMsgInput = document.getElementById("groupMsgInput");
+  const groupSendBtn = document.getElementById("groupSendBtn");
+  const groupLeaveBtn = document.getElementById("groupLeaveBtn");
+
+  groupLeaveBtn.addEventListener("click", () => {
+    socket.emit("leave_room");
+    groupChatBox.innerHTML = "";
+    showScreen("modeSelect", "💬 チャットを選ぶ");
+  });
+
+  socket.on("group_update", ({ code, members, limit }) => {
+    currentMode = "group";
+    groupStatus.textContent = `👥 グループチャット(${members.length}/${limit}人) コード: ${code}`;
+    groupMembers.textContent = "参加者: " + members.map((m) => m.name).join("、");
+    showScreen("groupRoom", "👥 グループチャット");
+  });
+
+  // ---------- 吹き出しの折り返し幅(全角「あ」18文字 / 半角小文字「r」41文字 / 半角大文字「R」27文字で折り返す) ----------
+  // 実際に使っているフォントで文字幅は変わる(特に半角はプロポーショナルフォントだと
+  // 文字ごとに幅が違う)ため、代表文字を実際に描画して幅を測り、一番大きい幅を採用する。
+  function measureTextWidth(str) {
+    const probe = document.createElement("span");
+    probe.style.cssText = "position:absolute; visibility:hidden; white-space:pre; left:-9999px; font-size:14px;";
+    probe.textContent = str;
+    document.body.appendChild(probe);
+    const w = probe.getBoundingClientRect().width;
+    probe.remove();
+    return w;
+  }
+  function setupBubbleMaxWidth() {
+    const widths = [
+      measureTextWidth("あ".repeat(18)),
+      measureTextWidth("r".repeat(41)),
+      measureTextWidth("R".repeat(27)),
+    ];
+    const max = Math.ceil(Math.max(...widths)) + 1;
+    document.documentElement.style.setProperty("--bubble-max", max + "px");
+  }
+  setupBubbleMaxWidth();
+
+  // ---------- チャット共通処理 ----------
+  const HEX_RE = /^#[0-9a-f]{6}$/i;
+  const isColorBlocked = () => {
+    try { return localStorage.getItem("blockPartnerColor") === "1"; } catch { return false; }
+  };
+  // 相手のメッセージに、受け取った色を反映する(ブロック中は標準色に戻す)
+  function applyPartnerColors() {
+    const blocked = isColorBlocked();
+    document.querySelectorAll(".msg.them").forEach((el) => {
+      const nc = el.dataset.nameColor;
+      const tc = el.dataset.textColor;
+      const who = el.querySelector(".who");
+      const bubble = el.querySelector(".bubble");
+      if (bubble) bubble.style.color = !blocked && tc ? tc : "";
+      if (who) {
+        who.style.color = !blocked && nc ? nc : "";
+        who.style.opacity = !blocked && nc ? "1" : "";
+      }
+    });
+  }
+  // 自分が設定している色(送信時に相手へ渡す)
+  function getMyColors() {
+    const get = (k) => {
+      try {
+        const v = localStorage.getItem(k);
+        return HEX_RE.test(v || "") ? v : null;
+      } catch { return null; }
+    };
+    return { nameColor: get("myNameColor"), textColor: get("myMsgColor") };
+  }
+
+  function formatTime(ts) {
+    const d = ts ? new Date(ts) : new Date();
+    return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  }
+
+  function addSystemMessage(targetBox, text) {
+    const p = document.createElement("div");
+    p.className = "system-msg";
+    p.textContent = text;
+    targetBox.appendChild(p);
+    targetBox.scrollTop = targetBox.scrollHeight;
+  }
+
+  function renderMessage(targetBox, { from, name, text, nameColor, textColor, ts }) {
+    const mine = from === socket.id;
+    const row = document.createElement("div");
+    row.className = "msg " + (mine ? "me" : "them");
+    if (!mine) {
+      if (HEX_RE.test(nameColor || "")) row.dataset.nameColor = nameColor;
+      if (HEX_RE.test(textColor || "")) row.dataset.textColor = textColor;
+
+      const meta = document.createElement("div");
+      meta.className = "msg-meta";
+      const avatar = document.createElement("span");
+      avatar.className = "avatar-circle";
+      avatar.textContent = (name || "?").trim().slice(0, 1).toUpperCase();
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = name;
+      meta.appendChild(avatar);
+      meta.appendChild(who);
+      row.appendChild(meta);
+    }
+
+    const bubbleRow = document.createElement("div");
+    bubbleRow.className = "bubble-row";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
+    bubble.textContent = text;
+    const time = document.createElement("span");
+    time.className = "msg-time";
+    time.textContent = formatTime(ts);
+    if (mine) { bubbleRow.appendChild(time); bubbleRow.appendChild(bubble); }
+    else { bubbleRow.appendChild(bubble); bubbleRow.appendChild(time); }
+    row.appendChild(bubbleRow);
+
+    targetBox.appendChild(row);
+    if (!mine) applyPartnerColors();
+    targetBox.scrollTop = targetBox.scrollHeight;
+  }
+
+  socket.on("chat_message", (data) => {
+    const targetBox = currentMode === "group" ? groupChatBox : chatBox;
+    renderMessage(targetBox, data);
   });
 
   function sendMessage() {
     const text = msgInput.value.trim();
     if (!text) return;
-    socket.emit("send_message", { text });
+    socket.emit("send_message", { text, ...getMyColors() });
     msgInput.value = "";
   }
   sendBtn.addEventListener("click", sendMessage);
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
+
+  function sendGroupMessage() {
+    const text = groupMsgInput.value.trim();
+    if (!text) return;
+    socket.emit("send_message", { text, ...getMyColors() });
+    groupMsgInput.value = "";
+  }
+  groupSendBtn.addEventListener("click", sendGroupMessage);
+  groupMsgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendGroupMessage(); });
 </script>
 <script src="/settings.js"></script>
 <script>
@@ -393,6 +721,14 @@
                inputId: 'myNameColor', resetId: 'myNameReset' });
   setupColor({ key: 'myMsgColor', attr: 'data-custom-me', cssVar: '--my-msg-color',
                inputId: 'myMsgColor', resetId: 'myMsgReset' });
+
+  // 相手のカラー変更をブロック(切り替えると表示中のメッセージにもすぐ反映)
+  const blockEl = document.getElementById('blockPartnerColor');
+  blockEl.checked = load('blockPartnerColor') === '1';
+  blockEl.addEventListener('change', () => {
+    save('blockPartnerColor', blockEl.checked ? '1' : null);
+    applyPartnerColors();
+  });
 })();
 </script>
 </body>
