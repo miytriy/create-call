@@ -536,6 +536,8 @@
     },
   };
 
+  // 既定言語は必ず日本語。端末やブラウザの言語(navigator.language)は見ない。
+  // 設定の「言語」タブで切り替えたときだけ localStorage に保存し、次回以降そちらを優先する。
   let lang = "ja";
   try { lang = localStorage.getItem("uiLang") || "ja"; } catch {}
   if (!I18N[lang]) lang = "ja";
