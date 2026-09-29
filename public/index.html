@@ -102,6 +102,18 @@
     font-size: 12px; border: 1px solid #33384a; border-radius: 8px;
   }
   .member-list { font-size: 12px; color: #8a8f9e; margin: -6px 0 10px; word-break: break-all; }
+  /* --- 待機中の演出 --- */
+  .spinner {
+    width: 44px; height: 44px; margin: 4px auto 16px;
+    border: 4px solid #33384a; border-top-color: #e0a840;
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dots span { animation: dotFade 1.4s infinite; opacity: 0; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dotFade { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+  [data-theme="light"] .spinner { border-color: #d4d2c8; border-top-color: #e0a840; }
   /* --- 設定パネル --- */
   .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
   .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
@@ -206,7 +218,8 @@
 
   <!-- ④ 待機中(個人/ランダム共通) -->
   <div id="waiting" class="hidden">
-    <p class="status" id="waitingStatus">相手の入室を待っています…</p>
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="status" id="waitingStatus">相手の入室を待っています<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
     <div class="code-badge hidden" id="waitingCode"></div>
     <p class="hint hidden" id="waitingHint" style="text-align:center;">このコードを相手に共有してください</p>
     <button id="cancelBtn" class="secondary">キャンセル</button>
@@ -403,7 +416,8 @@
   });
 
   socket.on("waiting", ({ code }) => {
-    waitingStatus.textContent = currentMode === "random" ? "お相手を探しています…" : "相手の入室を待っています…";
+    const waitingText = currentMode === "random" ? "お相手を探しています" : "相手の入室を待っています";
+    waitingStatus.innerHTML = waitingText + '<span class="dots"><span>.</span><span>.</span><span>.</span></span>';
     if (code) {
       waitingCode.textContent = code;
       waitingCode.classList.remove("hidden");
