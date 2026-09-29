@@ -1,268 +1,920 @@
-// =============================================================
-// マッチング・チャットサーバー
-// -------------------------------------------------------------
-// モード:
-//   personal … 部屋コードで2人がマッチング。音声通話+チャット
-//   group    … 部屋コードで複数人が参加。テキストチャットのみ。
-//              人数上限は、部屋を新規に作った人(最初の入室者)が指定
-//   random   … コード不要。待機列から自動で2人組にする。音声通話+チャット
-// =============================================================
-
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const path = require("path");
-
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
-
-app.use(express.static(path.join(__dirname, "public")));
-
-// code -> { type: 'personal'|'group', limit: number, members: [{ socketId, name }] }
-const rooms = new Map();
-
-// socketId -> 現在参加している部屋コード
-const socketRoom = new Map();
-
-// ランダムチャットの待機列: [{ socketId, name }, ...]
-let randomQueue = [];
-
-// チャットの色として許可する形式(#rrggbb)
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-function sanitizeColor(value) {
-  return typeof value === "string" && HEX_COLOR.test(value) ? value : null;
-}
-
-function normalizeCode(raw) {
-  const halfWidth = String(raw || "").replace(/[\uFF01-\uFF5E]/g, (ch) =>
-    String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
-  );
-  return halfWidth.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
-}
-
-function randomRoomCode() {
-  return "R" + Math.random().toString(36).slice(2, 8).toUpperCase();
-}
-
-function removeFromRandomQueue(socketId) {
-  randomQueue = randomQueue.filter((w) => w.socketId !== socketId);
-}
-
-// 現在の部屋から退出させる。group の場合は残ったメンバーに更新を通知する。
-function leaveCurrentRoom(socket, notifyPartner = true) {
-  removeFromRandomQueue(socket.id);
-
-  const code = socketRoom.get(socket.id);
-  if (!code) return;
-
-  const room = rooms.get(code);
-
-  // 先に部屋から抜けておく(この後の通知を自分が受け取らないようにするため)
-  socket.leave(code);
-  socketRoom.delete(socket.id);
-
-  if (!room) return;
-
-  const remaining = room.members.filter((m) => m.socketId !== socket.id);
-
-  if (remaining.length > 0) {
-    room.members = remaining;
-    if (room.type === "personal") {
-      if (notifyPartner) io.to(remaining[0].socketId).emit("partner_left");
-    } else {
-      io.to(code).emit("group_update", {
-        code,
-        limit: room.limit,
-        members: remaining.map((m) => ({ name: m.name })),
-      });
-    }
-  } else {
-    rooms.delete(code);
+<!DOCTYPE html>
+<html lang="ja" translate="no">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="color-scheme" content="light dark" />
+<meta name="google" content="notranslate" />
+<title>通話・チャット</title>
+<style>
+  * { box-sizing: border-box; }
+  html {
+    /* Android系ブラウザの自動ダーク変換を止め、背景色も明示する */
+    color-scheme: dark;
+    background: #12141c;
   }
-}
+  [data-theme="light"] { color-scheme: light; background: #f3f2ee; }
+  [data-theme="dark"] { color-scheme: dark; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #12141c;
+    color: #e7e6e2;
+    display: flex;
+    justify-content: center;
+    padding: 24px 12px;
+    min-height: 100vh;
+  }
+  .card {
+    width: 100%;
+    max-width: 420px;
+    background: #181b25;
+    border: 1px solid #2a2e3a;
+    border-radius: 16px;
+    padding: 24px;
+  }
+  h1 { font-size: 18px; margin: 0 0 16px; text-align: center; }
+  label { font-size: 12px; color: #8a8f9e; display: block; margin-bottom: 4px; }
+  input {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid #33384a;
+    background: #0f111a;
+    color: #fff;
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+  input.code { font-family: monospace; letter-spacing: 0.2em; }
+  .hint { font-size: 11px; color: #5f6473; margin: -8px 0 12px; }
+  button {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: none;
+    background: #e0a840;
+    color: #1a1206;
+    font-weight: 600;
+    cursor: pointer;
+    margin-bottom: 8px;
+    font-size: 14px;
+  }
+  button.secondary { background: #20242f; color: #c7cad3; border: 1px solid #33384a; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .status { font-size: 13px; color: #e0a840; margin: 8px 0 16px; text-align: center; }
+  .error { font-size: 12px; color: #ff6b6b; margin: 4px 0 12px; }
+  .code-badge {
+    font-family: monospace;
+    letter-spacing: 0.3em;
+    font-size: 20px;
+    text-align: center;
+    background: #0f111a;
+    border: 1px solid #33384a;
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 12px;
+  }
+  .chat-box {
+    height: 260px;
+    overflow-y: auto;
+    background: #0f111a;
+    border-radius: 10px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .msg { margin-bottom: 6px; font-size: 14px; }
+  .msg .who { font-size: 11px; opacity: .6; margin-right: 4px; }
+  .msg.me { color: #e0a840; text-align: right; }
+  .msg.them { color: #c7cad3; }
+  .row { display: flex; gap: 8px; }
+  .row input { flex: 1; margin-bottom: 0; }
+  .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
+  .hidden { display: none; }
+  /* --- モード選択画面 --- */
+  .mode-card {
+    width: 100%; text-align: left; padding: 14px; border-radius: 14px;
+    background: #20242f; border: 1px solid #33384a; color: inherit;
+    cursor: pointer; margin-bottom: 10px; display: flex; gap: 10px; align-items: flex-start;
+  }
+  .mode-card .mc-icon { font-size: 22px; line-height: 1.2; }
+  .mode-card .mc-title { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+  .mode-card .mc-desc { font-size: 12px; color: #8a8f9e; }
+  .back-link {
+    width: auto; margin: 0 0 14px; padding: 6px 12px; background: none; color: inherit;
+    font-size: 12px; border: 1px solid #33384a; border-radius: 8px;
+  }
+  .member-list { font-size: 12px; color: #8a8f9e; margin: -6px 0 10px; word-break: break-all; }
+  /* --- 待機中の演出 --- */
+  .spinner {
+    width: 44px; height: 44px; margin: 4px auto 16px;
+    border: 4px solid #33384a; border-top-color: #e0a840;
+    border-radius: 50%; animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .dots span { animation: dotFade 1.4s infinite; opacity: 0; }
+  .dots span:nth-child(2) { animation-delay: .2s; }
+  .dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes dotFade { 0%, 80%, 100% { opacity: 0; } 40% { opacity: 1; } }
+  [data-theme="light"] .spinner { border-color: #d4d2c8; border-top-color: #e0a840; }
+  /* --- 設定パネル --- */
+  .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay.hidden { display: none; }
+  .sheet { width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #181b25; border: 1px solid #2a2e3a; border-radius: 16px 16px 0 0; padding: 16px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .x { width: auto; margin: 0; padding: 4px 10px; background: none; color: inherit; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tab { flex: 1; min-width: 64px; margin: 0; padding: 8px 4px; font-size: 12px; background: #20242f; color: #c7cad3; border: 1px solid #33384a; }
+  .tab.on { background: #e0a840; color: #1a1206; border-color: #e0a840; }
+  .sheet select { width: 100%; padding: 10px; margin-bottom: 12px; border-radius: 10px; border: 1px solid #33384a; background: #0f111a; color: #fff; }
+  .sheet input[type=range] { padding: 0; border: 0; background: none; }
+  .sheet input[type=checkbox], .sheet input[type=radio] { width: auto; margin: 0 8px 0 0; }
+  .sw { display: flex; align-items: center; font-size: 14px; color: inherit; margin-bottom: 12px; }
+  .meter { height: 10px; background: #0f111a; border-radius: 6px; overflow: hidden; margin-bottom: 10px; }
+  .meter i { display: block; height: 100%; width: 0; background: #e0a840; }
+  .avatar { width: 56px; height: 56px; border-radius: 50%; margin-bottom: 8px; }
+  .sw input[type=checkbox] { width: auto; margin: 0 8px 0 0; padding: 0; }
+  /* --- ライトテーマ --- */
+  [data-theme="light"] body { background: #f3f2ee; color: #1d1f27; }
+  [data-theme="light"] .card, [data-theme="light"] .sheet { background: #fff; border-color: #dcdad2; }
+  [data-theme="light"] input, [data-theme="light"] .sheet select, [data-theme="light"] .code-badge, [data-theme="light"] .chat-box, [data-theme="light"] .meter { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
+  [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear, [data-theme="light"] .mode-card, [data-theme="light"] .back-link { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
+  [data-theme="light"] .tab.on { background: #e0a840; color: #1a1206; }
+  [data-theme="light"] .msg.them { color: #3a3d48; }
+  [data-theme="light"] .msg.me { color: #a8710f; }
+  [data-theme="light"] label, [data-theme="light"] .hint, [data-theme="light"] .mode-card .mc-desc, [data-theme="light"] .member-list { color: #6b6f7c; }
+  [data-theme="light"] .sw { color: #1d1f27; }
+  /* --- 自分のチャットのカスタム色(指定があるときだけ有効) --- */
+  [data-custom-me] .msg.me { color: var(--my-msg-color); }
+  [data-custom-name] .msg.me .who { color: var(--my-name-color); opacity: 1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1 id="mainTitle">💬 チャットを選ぶ</h1>
 
-io.on("connection", (socket) => {
-  // ---- 個人チャット / グループチャット(部屋コード方式) ----
-  socket.on("join_room", (payload) => {
-    try {
-      const { displayName, code, mode } =
-        payload && typeof payload === "object" ? payload : {};
+  <!-- ① モード選択 -->
+  <div id="modeSelect">
+    <button class="mode-card" data-mode="personal">
+      <span class="mc-icon">🔑</span>
+      <span>
+        <span class="mc-title" data-i18n="mode_personal_title">個人チャット</span><br>
+        <span class="mc-desc" data-i18n="mode_personal_desc">部屋コードを共有した1人と、音声通話+チャット</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="group">
+      <span class="mc-icon">👥</span>
+      <span>
+        <span class="mc-title" data-i18n="mode_group_title">グループチャット</span><br>
+        <span class="mc-desc" data-i18n="mode_group_desc">部屋コードを知っている複数人でテキストチャット(人数上限あり)</span>
+      </span>
+    </button>
+    <button class="mode-card" data-mode="random">
+      <span class="mc-icon">🎲</span>
+      <span>
+        <span class="mc-title" data-i18n="mode_random_title">ランダムチャット</span><br>
+        <span class="mc-desc" data-i18n="mode_random_desc">コード不要。待機中の誰かと自動でマッチングし、音声通話+チャット</span>
+      </span>
+    </button>
+  </div>
 
-      const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
-      const roomCode = normalizeCode(code);
-      const roomType = mode === "group" ? "group" : "personal";
+  <!-- ② 個人/グループ:コード入力 -->
+  <div id="codeSetup" class="hidden">
+    <button class="back-link" data-back="1" data-i18n="back">← 戻る</button>
 
-      if (!roomCode) {
-        socket.emit("join_error", { code: "need_code", message: "部屋コードを入力してください" });
-        return;
-      }
+    <label data-i18n="label_name">表示名</label>
+    <input id="nameInput" placeholder="例: ABC" maxlength="20" data-i18n-ph="ph_name" />
 
-      // すでに別の部屋にいるなら先に退出(二重参加防止)
-      leaveCurrentRoom(socket, true);
+    <label data-i18n="label_code">部屋コード</label>
+    <input id="codeInput" class="code" placeholder="例: ABC123" maxlength="8" data-i18n-ph="ph_code" />
+    <p class="hint" data-i18n="hint_code">同じコードを入力した人同士がマッチングされます</p>
 
-      let room = rooms.get(roomCode);
+    <div id="groupOptions" class="hidden">
+      <label data-i18n="label_group_limit">人数上限(2〜20人・部屋を新規に作る場合のみ有効)</label>
+      <input id="groupLimitInput" type="number" min="2" max="20" value="10" />
+    </div>
 
-      if (room && room.type !== roomType) {
-        socket.emit("join_error", { code: "wrong_type", message: "このコードは別の種類のチャットで使用されています" });
-        return;
-      }
+    <div id="personalOptions">
+      <label class="sw"><input type="checkbox" id="preMic"><span data-i18n="opt_mic_mute">マイクをミュートして入室</span></label>
+      <label class="sw"><input type="checkbox" id="preSpk"><span data-i18n="opt_spk_mute">スピーカーをミュートして入室</span></label>
+    </div>
 
-      if (!room) {
-        let limit = 2;
-        if (roomType === "group") {
-          const parsed = parseInt(payload && payload.limit, 10);
-          limit = Number.isFinite(parsed) ? Math.min(20, Math.max(2, parsed)) : 10;
-        }
-        room = { type: roomType, limit, members: [] };
-        rooms.set(roomCode, room);
-      }
+    <p class="error hidden" id="codeError"></p>
+    <button id="codeJoinBtn" data-i18n="btn_join">入室する</button>
+  </div>
 
-      if (room.members.length >= room.limit) {
-        socket.emit("join_error", {
-          code: roomType === "group" ? "full_group" : "full_personal",
-          message: roomType === "group" ? "このグループは満員です" : "この部屋はすでに満室です",
-        });
-        return;
-      }
+  <!-- ③ ランダムチャット:入室前 -->
+  <div id="randomSetup" class="hidden">
+    <button class="back-link" data-back="1" data-i18n="back">← 戻る</button>
 
-      room.members.push({ socketId: socket.id, name });
-      socketRoom.set(socket.id, roomCode);
-      socket.join(roomCode);
+    <label data-i18n="label_name">表示名</label>
+    <input id="randomNameInput" placeholder="例: ABC" maxlength="20" data-i18n-ph="ph_name" />
+    <p class="hint" data-i18n="hint_random">ボタンを押すと、同じタイミングで待っている誰かと自動でマッチングします</p>
 
-      if (roomType === "personal") {
-        if (room.members.length === 2) {
-          const [a, b] = room.members;
-          // initiator: 通話のoffer(発信)側。先に入った a が担当
-          io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name, initiator: true });
-          io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name, initiator: false });
-          console.log(`[match] code=${roomCode} ${a.name} <-> ${b.name}`);
-        } else {
-          socket.emit("waiting", { code: roomCode });
-          console.log(`[queue] ${name} が code=${roomCode} で待機中`);
-        }
+    <label class="sw"><input type="checkbox" id="randomPreMic"><span data-i18n="opt_mic_mute">マイクをミュートして入室</span></label>
+    <label class="sw"><input type="checkbox" id="randomPreSpk"><span data-i18n="opt_spk_mute">スピーカーをミュートして入室</span></label>
+
+    <p class="error hidden" id="randomError"></p>
+    <button id="randomJoinBtn" data-i18n="btn_random_join">ランダムマッチング開始</button>
+  </div>
+
+  <!-- ④ 待機中(個人/ランダム共通) -->
+  <div id="waiting" class="hidden">
+    <div class="spinner" aria-hidden="true"></div>
+    <p class="status" id="waitingStatus">相手の入室を待っています<span class="dots"><span>.</span><span>.</span><span>.</span></span></p>
+    <div class="code-badge hidden" id="waitingCode"></div>
+    <p class="hint hidden" id="waitingHint" style="text-align:center;" data-i18n="hint_waiting_share">このコードを相手に共有してください</p>
+    <button id="cancelBtn" class="secondary" data-i18n="btn_cancel">キャンセル</button>
+  </div>
+
+  <!-- ⑤ 通話中(個人/ランダム共通:音声+チャット) -->
+  <div id="matched" class="hidden">
+    <p class="status" id="matchedStatus"></p>
+    <p class="hint" id="callState" style="text-align:center;"></p>
+    <button id="muteBtn" class="secondary" data-i18n="btn_mute">🎤 ミュートする</button>
+    <button id="spkMuteBtn" class="secondary">🔊 スピーカーをミュートする</button>
+    <div id="chatBox" class="chat-box"></div>
+    <div class="row" style="margin-bottom:8px;">
+      <input id="msgInput" placeholder="メッセージを入力" data-i18n-ph="ph_message" />
+      <button id="sendBtn" data-i18n="btn_send">送信</button>
+    </div>
+    <button id="leaveBtn" class="secondary" data-i18n="btn_leave">退出する</button>
+  </div>
+
+  <!-- ⑥ グループチャット中(テキストのみ) -->
+  <div id="groupRoom" class="hidden">
+    <p class="status" id="groupStatus"></p>
+    <p class="member-list" id="groupMembers"></p>
+    <div id="groupChatBox" class="chat-box"></div>
+    <div class="row" style="margin-bottom:8px;">
+      <input id="groupMsgInput" placeholder="メッセージを入力" data-i18n-ph="ph_message" />
+      <button id="groupSendBtn" data-i18n="btn_send">送信</button>
+    </div>
+    <button id="groupLeaveBtn" class="secondary" data-i18n="btn_leave">退出する</button>
+  </div>
+
+  <audio id="remoteAudio" autoplay></audio>
+</div>
+
+<button id="gearBtn" class="gear" aria-label="設定" data-i18n-aria="gear_aria">⚙️</button>
+<div id="settingsOverlay" class="overlay hidden">
+  <div class="sheet">
+    <div class="sheet-head"><b data-i18n="settings_title">設定</b><button id="closeSettings" class="x">✕</button></div>
+    <div class="tabs">
+      <button class="tab on" data-tab="account" data-i18n="tab_account">アカウント</button>
+      <button class="tab" data-tab="notify" data-i18n="tab_notify">通知</button>
+      <button class="tab" data-tab="audio" data-i18n="tab_audio">音声</button>
+      <button class="tab" data-tab="theme" data-i18n="tab_theme">テーマ</button>
+      <button class="tab" data-tab="language" data-i18n="tab_language">言語</button>
+    </div>
+
+    <div class="panel" data-panel="account"><div id="accountBody"></div></div>
+
+    <div class="panel hidden" data-panel="notify">
+      <label class="sw"><input type="checkbox" id="notifyToggle"><span data-i18n="lbl_notify">デスクトップ・プッシュ通知</span></label>
+      <p class="hint" id="notifyHint" style="margin:0;"></p>
+    </div>
+
+    <div class="panel hidden" data-panel="audio">
+      <label data-i18n="lbl_mic">マイク</label><select id="micSel"></select>
+      <label><span data-i18n="lbl_mic_vol">マイク音量</span> <span id="micVolVal"></span></label><input type="range" id="micVol" min="0" max="200" />
+      <label data-i18n="lbl_spk">スピーカー</label><select id="spkSel"></select>
+      <p class="hint" id="spkHint" style="margin-top:-8px;"></p>
+      <label><span data-i18n="lbl_spk_vol">スピーカー音量</span> <span id="spkVolVal"></span></label><input type="range" id="spkVol" min="0" max="100" />
+      <label class="sw"><input type="checkbox" id="echoToggle"><span data-i18n="lbl_echo">エコー除去</span></label>
+      <label class="sw"><input type="checkbox" id="noiseToggle"><span data-i18n="lbl_noise">ノイズ抑制</span></label>
+      <label class="sw"><input type="checkbox" id="joinMicMute"><span data-i18n="opt_mic_mute">マイクをミュートして入室</span></label>
+      <label class="sw"><input type="checkbox" id="joinSpkMute"><span data-i18n="opt_spk_mute">スピーカーをミュートして入室</span></label>
+      <label data-i18n="lbl_mic_test">マイクテスト(話すとバーが動きます)</label>
+      <div class="meter"><i id="meterBar"></i></div>
+      <button id="micTestBtn" class="secondary">テスト開始</button>
+    </div>
+
+    <div class="panel hidden" data-panel="theme">
+      <label class="sw"><input type="radio" name="theme" value="system"><span data-i18n="theme_system">端末の設定に合わせる</span></label>
+      <label class="sw"><input type="radio" name="theme" value="dark"><span data-i18n="theme_dark">ダーク</span></label>
+      <label class="sw"><input type="radio" name="theme" value="light"><span data-i18n="theme_light">ライト</span></label>
+
+      <label data-i18n="lbl_my_name_color">自分のユーザー名の色</label>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="color" id="myNameColor" style="height:40px; padding:2px;">
+        <button id="myNameReset" class="secondary" data-i18n="btn_reset">リセット</button>
+      </div>
+
+      <label data-i18n="lbl_my_msg_color">自分の文字色</label>
+      <div class="row" style="margin-bottom:12px;">
+        <input type="color" id="myMsgColor" style="height:40px; padding:2px;">
+        <button id="myMsgReset" class="secondary" data-i18n="btn_reset">リセット</button>
+      </div>
+
+      <label class="sw"><input type="checkbox" id="blockPartnerColor"><span data-i18n="lbl_block_partner">相手のカラー変更をブロック</span></label>
+      <p class="hint" style="margin-top:-8px;" data-i18n="hint_block_partner">オンにすると、相手が設定した名前や文字の色は表示せず、標準の色で表示します</p>
+    </div>
+
+    <div class="panel hidden" data-panel="language">
+      <label class="sw"><input type="radio" name="lang" value="ja"><span>日本語</span></label>
+      <label class="sw"><input type="radio" name="lang" value="en"><span>English</span></label>
+      <label class="sw"><input type="radio" name="lang" value="ko"><span>한국어</span></label>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="/call.js"></script>
+<script>
+  const socket = io();
+
+  // ==================== 多言語対応 ====================
+  const I18N = {
+    ja: {
+      app_title: "通話・チャット",
+      title_select: "💬 チャットを選ぶ",
+      title_personal: "🔑 個人チャット",
+      title_group: "👥 グループチャット",
+      title_random: "🎲 ランダムチャット",
+      mode_personal_title: "個人チャット",
+      mode_personal_desc: "部屋コードを共有した1人と、音声通話+チャット",
+      mode_group_title: "グループチャット",
+      mode_group_desc: "部屋コードを知っている複数人でテキストチャット(人数上限あり)",
+      mode_random_title: "ランダムチャット",
+      mode_random_desc: "コード不要。待機中の誰かと自動でマッチングし、音声通話+チャット",
+      back: "← 戻る",
+      label_name: "表示名",
+      ph_name: "例: ABC",
+      label_code: "部屋コード",
+      ph_code: "例: ABC123",
+      hint_code: "同じコードを入力した人同士がマッチングされます",
+      label_group_limit: "人数上限(2〜20人・部屋を新規に作る場合のみ有効)",
+      opt_mic_mute: "マイクをミュートして入室",
+      opt_spk_mute: "スピーカーをミュートして入室",
+      btn_join: "入室する",
+      hint_random: "ボタンを押すと、同じタイミングで待っている誰かと自動でマッチングします",
+      btn_random_join: "ランダムマッチング開始",
+      hint_waiting_share: "このコードを相手に共有してください",
+      btn_cancel: "キャンセル",
+      waiting_personal: "相手の入室を待っています",
+      waiting_random: "お相手を探しています",
+      btn_mute: "🎤 ミュートする",
+      btn_unmute: "🔇 ミュート解除",
+      ph_message: "メッセージを入力",
+      btn_send: "送信",
+      btn_leave: "退出する",
+      status_matched: "✅ {name} さんとマッチングしました！",
+      call_prefix: "通話: ",
+      call_connecting: "接続準備中…",
+      call_nomic: "マイクなし(相手の声だけ聞こえます)",
+      call_failed: "接続に失敗しました",
+      msg_partner_left: "相手が退出しました。もう一度入室できます。",
+      status_group: "👥 グループチャット({count}/{limit}人) コード: {code}",
+      label_members: "参加者: {list}",
+      need_code: "部屋コードを入力してください",
+      wrong_type: "このコードは別の種類のチャットで使用されています",
+      full_personal: "この部屋はすでに満室です",
+      full_group: "このグループは満員です",
+      error: "参加中にエラーが発生しました",
+      settings_title: "設定",
+      tab_account: "アカウント",
+      tab_notify: "通知",
+      tab_audio: "音声",
+      tab_theme: "テーマ",
+      tab_language: "言語",
+      lbl_notify: "デスクトップ・プッシュ通知",
+      lbl_mic: "マイク",
+      lbl_mic_vol: "マイク音量",
+      lbl_spk: "スピーカー",
+      lbl_spk_vol: "スピーカー音量",
+      lbl_echo: "エコー除去",
+      lbl_noise: "ノイズ抑制",
+      lbl_mic_test: "マイクテスト(話すとバーが動きます)",
+      theme_system: "端末の設定に合わせる",
+      theme_dark: "ダーク",
+      theme_light: "ライト",
+      lbl_my_name_color: "自分のユーザー名の色",
+      lbl_my_msg_color: "自分の文字色",
+      btn_reset: "リセット",
+      lbl_block_partner: "相手のカラー変更をブロック",
+      hint_block_partner: "オンにすると、相手が設定した名前や文字の色は表示せず、標準の色で表示します",
+      gear_aria: "設定",
+      default_name: "名無し",
+      app_title: "Call & Chat",
+      title_select: "💬 Choose a chat",
+      title_personal: "🔑 Personal chat",
+      title_group: "👥 Group chat",
+      title_random: "🎲 Random chat",
+      mode_personal_title: "Personal chat",
+      mode_personal_desc: "Voice call + chat with one person who has the room code",
+      mode_group_title: "Group chat",
+      mode_group_desc: "Text chat with several people who know the room code (member limit applies)",
+      mode_random_title: "Random chat",
+      mode_random_desc: "No code needed. Automatically matched with someone waiting, with voice call + chat",
+      back: "← Back",
+      label_name: "Display name",
+      ph_name: "e.g. ABC",
+      label_code: "Room code",
+      ph_code: "e.g. ABC123",
+      hint_code: "People who enter the same code will be matched together",
+      label_group_limit: "Member limit (2–20; only applies when creating a new room)",
+      opt_mic_mute: "Join with mic muted",
+      opt_spk_mute: "Join with speaker muted",
+      btn_join: "Join",
+      hint_random: "Press the button to be automatically matched with someone waiting at the same time",
+      btn_random_join: "Start random matching",
+      hint_waiting_share: "Share this code with the other person",
+      btn_cancel: "Cancel",
+      waiting_personal: "Waiting for the other person to join",
+      waiting_random: "Looking for a match",
+      btn_mute: "🎤 Mute",
+      btn_unmute: "🔇 Unmute",
+      ph_message: "Type a message",
+      btn_send: "Send",
+      btn_leave: "Leave",
+      status_matched: "✅ Matched with {name}!",
+      call_prefix: "Call: ",
+      call_connecting: "Preparing connection…",
+      call_nomic: "No mic (you can only hear the other person)",
+      call_failed: "Connection failed",
+      msg_partner_left: "The other person left. You can join again.",
+      status_group: "👥 Group chat ({count}/{limit}) Code: {code}",
+      label_members: "Members: {list}",
+      need_code: "Please enter a room code",
+      wrong_type: "This code is being used for a different type of chat",
+      full_personal: "This room is already full",
+      full_group: "This group is full",
+      error: "An error occurred while joining",
+      settings_title: "Settings",
+      tab_account: "Account",
+      tab_notify: "Notifications",
+      tab_audio: "Audio",
+      tab_theme: "Theme",
+      tab_language: "Language",
+      lbl_notify: "Desktop / push notifications",
+      lbl_mic: "Microphone",
+      lbl_mic_vol: "Mic volume",
+      lbl_spk: "Speaker",
+      lbl_spk_vol: "Speaker volume",
+      lbl_echo: "Echo cancellation",
+      lbl_noise: "Noise suppression",
+      lbl_mic_test: "Mic test (the bar moves when you speak)",
+      theme_system: "Match device setting",
+      theme_dark: "Dark",
+      theme_light: "Light",
+      lbl_my_name_color: "Your username color",
+      lbl_my_msg_color: "Your text color",
+      btn_reset: "Reset",
+      lbl_block_partner: "Block partner's color changes",
+      hint_block_partner: "When on, the partner's name and text colors are ignored and shown in default colors",
+      gear_aria: "Settings",
+      default_name: "Guest",
+      app_title: "통화・채팅",
+      title_select: "💬 채팅 선택",
+      title_personal: "🔑 개인 채팅",
+      title_group: "👥 그룹 채팅",
+      title_random: "🎲 랜덤 채팅",
+      mode_personal_title: "개인 채팅",
+      mode_personal_desc: "방 코드를 공유한 1명과 음성 통화 + 채팅",
+      mode_group_title: "그룹 채팅",
+      mode_group_desc: "방 코드를 아는 여러 명과 텍스트 채팅(인원 제한 있음)",
+      mode_random_title: "랜덤 채팅",
+      mode_random_desc: "코드 불필요. 대기 중인 상대와 자동으로 매칭되어 음성 통화 + 채팅",
+      back: "← 뒤로",
+      label_name: "표시 이름",
+      ph_name: "예: ABC",
+      label_code: "방 코드",
+      ph_code: "예: ABC123",
+      hint_code: "같은 코드를 입력한 사람끼리 매칭됩니다",
+      label_group_limit: "인원 제한(2~20명, 방을 새로 만들 때만 적용됨)",
+      opt_mic_mute: "마이크를 음소거하고 입장",
+      opt_spk_mute: "스피커를 음소거하고 입장",
+      btn_join: "입장하기",
+      hint_random: "버튼을 누르면 같은 시간에 기다리고 있는 사람과 자동으로 매칭됩니다",
+      btn_random_join: "랜덤 매칭 시작",
+      hint_waiting_share: "이 코드를 상대방에게 공유해주세요",
+      btn_cancel: "취소",
+      waiting_personal: "상대방의 입장을 기다리고 있습니다",
+      waiting_random: "상대를 찾고 있습니다",
+      btn_mute: "🎤 음소거하기",
+      btn_unmute: "🔇 음소거 해제",
+      ph_message: "메시지를 입력하세요",
+      btn_send: "전송",
+      btn_leave: "나가기",
+      status_matched: "✅ {name}님과 매칭되었습니다!",
+      call_prefix: "통화: ",
+      call_connecting: "연결 준비 중…",
+      call_nomic: "마이크 없음(상대방 목소리만 들립니다)",
+      call_failed: "연결에 실패했습니다",
+      msg_partner_left: "상대방이 나갔습니다. 다시 입장할 수 있습니다.",
+      status_group: "👥 그룹 채팅({count}/{limit}명) 코드: {code}",
+      label_members: "참가자: {list}",
+      need_code: "방 코드를 입력해주세요",
+      wrong_type: "이 코드는 다른 종류의 채팅에 사용되고 있습니다",
+      full_personal: "이 방은 이미 가득 찼습니다",
+      full_group: "이 그룹은 가득 찼습니다",
+      error: "참가 중 오류가 발생했습니다",
+      settings_title: "설정",
+      tab_account: "계정",
+      tab_notify: "알림",
+      tab_audio: "음성",
+      tab_theme: "테마",
+      tab_language: "언어",
+      lbl_notify: "데스크톱・푸시 알림",
+      lbl_mic: "마이크",
+      lbl_mic_vol: "마이크 음량",
+      lbl_spk: "스피커",
+      lbl_spk_vol: "스피커 음량",
+      lbl_echo: "에코 제거",
+      lbl_noise: "노이즈 억제",
+      lbl_mic_test: "마이크 테스트(말하면 막대가 움직입니다)",
+      theme_system: "기기 설정에 맞추기",
+      theme_dark: "다크",
+      theme_light: "라이트",
+      lbl_my_name_color: "내 사용자 이름 색상",
+      lbl_my_msg_color: "내 글자 색상",
+      btn_reset: "재설정",
+      lbl_block_partner: "상대방의 색상 변경 차단",
+      hint_block_partner: "켜면 상대방이 설정한 이름과 글자 색상을 무시하고 기본 색상으로 표시합니다",
+      gear_aria: "설정",
+      default_name: "손님",
+    },
+  };
+
+  // 既定言語は必ず日本語。端末やブラウザの言語(navigator.language)は見ない。
+  // 設定の「言語」タブで切り替えたときだけ localStorage に保存し、次回以降そちらを優先する。
+  let lang = "ja";
+  try { lang = localStorage.getItem("uiLang") || "ja"; } catch {}
+  if (!I18N[lang]) lang = "ja";
+
+  function t(key, vars) {
+    let s = (I18N[lang] && I18N[lang][key]) || (I18N.ja[key] || key);
+    if (vars) for (const k in vars) s = s.replace("{" + k + "}", vars[k]);
+    return s;
+  }
+
+  function applyStaticI18n() {
+    document.documentElement.lang = lang;
+    document.title = t("app_title");
+    document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
+    document.querySelectorAll('input[name="lang"]').forEach((r) => { r.checked = r.value === lang; });
+  }
+
+  function setLang(newLang) {
+    if (!I18N[newLang]) return;
+    lang = newLang;
+    try { localStorage.setItem("uiLang", lang); } catch {}
+    applyStaticI18n();
+    reRenderDynamicTexts();
+  }
+
+  document.querySelectorAll('input[name="lang"]').forEach((r) => {
+    r.addEventListener("change", () => { if (r.checked) setLang(r.value); });
+  });
+
+  // ---------- 画面切り替え ----------
+  const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom"];
+  const mainTitle = document.getElementById("mainTitle");
+  let currentTitleKey = "title_select";
+
+  function showScreen(name, titleKey) {
+    SCREENS.forEach((id) => document.getElementById(id).classList.toggle("hidden", id !== name));
+    if (titleKey) currentTitleKey = titleKey;
+    mainTitle.textContent = t(currentTitleKey);
+  }
+
+  let currentMode = null; // 'personal' | 'group' | 'random'
+  let lastPartnerName = null;
+  let lastGroupInfo = null; // { code, members, limit }
+  let lastWaitingCode = null;
+
+  // 言語切り替え時、今表示している画面の動的な文言を訳し直す
+  function reRenderDynamicTexts() {
+    mainTitle.textContent = t(currentTitleKey);
+    if (!document.getElementById("waiting").classList.contains("hidden")) {
+      renderWaiting(lastWaitingCode);
+    }
+    if (!document.getElementById("matched").classList.contains("hidden") && lastPartnerName) {
+      document.getElementById("matchedStatus").textContent = t("status_matched", { name: lastPartnerName });
+    }
+    if (!document.getElementById("groupRoom").classList.contains("hidden") && lastGroupInfo) {
+      renderGroupStatus(lastGroupInfo);
+    }
+  }
+
+  document.querySelectorAll(".mode-card").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      currentMode = btn.dataset.mode;
+      document.getElementById("codeError").classList.add("hidden");
+      document.getElementById("randomError").classList.add("hidden");
+      if (currentMode === "random") {
+        showScreen("randomSetup", "title_random");
       } else {
-        io.to(roomCode).emit("group_update", {
-          code: roomCode,
-          limit: room.limit,
-          members: room.members.map((m) => ({ name: m.name })),
-        });
-        console.log(`[group] ${name} が code=${roomCode} に参加(${room.members.length}/${room.limit})`);
+        document.getElementById("personalOptions").classList.toggle("hidden", currentMode !== "personal");
+        document.getElementById("groupOptions").classList.toggle("hidden", currentMode !== "group");
+        showScreen("codeSetup", currentMode === "group" ? "title_group" : "title_personal");
       }
-    } catch (err) {
-      console.error("[join_room error]", err);
-      socket.emit("join_error", { message: "参加中にエラーが発生しました" });
-    }
+    });
   });
 
-  // ---- ランダムチャット(コード不要・自動で2人組にする) ----
-  socket.on("join_random", (payload) => {
-    try {
-      const { displayName } = payload && typeof payload === "object" ? payload : {};
-      const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
+  document.querySelectorAll("[data-back]").forEach((btn) => {
+    btn.addEventListener("click", () => showScreen("modeSelect", "title_select"));
+  });
 
-      leaveCurrentRoom(socket, true);
+  // ---------- 個人/グループ:コード入室 ----------
+  const nameInput = document.getElementById("nameInput");
+  const codeInput = document.getElementById("codeInput");
+  const codeError = document.getElementById("codeError");
+  const codeJoinBtn = document.getElementById("codeJoinBtn");
+  const groupLimitInput = document.getElementById("groupLimitInput");
 
-      if (randomQueue.length > 0) {
-        const partner = randomQueue.shift();
-        const partnerSocket = io.sockets.sockets.get(partner.socketId);
+  function normalizeCode(raw) {
+    const halfWidth = raw.replace(/[\uFF01-\uFF5E]/g, (ch) =>
+      String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
+    );
+    return halfWidth.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  }
 
-        if (!partnerSocket) {
-          // 相手がすでに切断していた場合は、自分を待機列に入れる
-          randomQueue.push({ socketId: socket.id, name });
-          socket.emit("waiting", { code: null });
-          return;
-        }
+  codeInput.addEventListener("input", () => {
+    const cursorAtEnd = codeInput.selectionStart === codeInput.value.length;
+    codeInput.value = normalizeCode(codeInput.value);
+    if (cursorAtEnd) codeInput.selectionStart = codeInput.selectionEnd = codeInput.value.length;
+  });
 
-        const roomCode = randomRoomCode();
-        const room = {
-          type: "personal",
-          limit: 2,
-          members: [
-            { socketId: partner.socketId, name: partner.name },
-            { socketId: socket.id, name },
-          ],
-        };
-        rooms.set(roomCode, room);
-        socketRoom.set(partner.socketId, roomCode);
-        socketRoom.set(socket.id, roomCode);
-        partnerSocket.join(roomCode);
-        socket.join(roomCode);
+  function showCodeError(text) {
+    codeError.textContent = text;
+    codeError.classList.toggle("hidden", !text);
+  }
 
-        io.to(partner.socketId).emit("matched", { code: roomCode, partnerName: name, initiator: true });
-        io.to(socket.id).emit("matched", { code: roomCode, partnerName: partner.name, initiator: false });
-        console.log(`[random match] code=${roomCode} ${partner.name} <-> ${name}`);
-      } else {
-        randomQueue.push({ socketId: socket.id, name });
-        socket.emit("waiting", { code: null });
-        console.log(`[random queue] ${name} が待機中`);
+  codeJoinBtn.addEventListener("click", () => {
+    const displayName = nameInput.value.trim() || t("default_name");
+    const code = normalizeCode(codeInput.value);
+    if (!code) { showCodeError(t("need_code")); return; }
+    showCodeError("");
+    const payload = { displayName, code, mode: currentMode };
+    if (currentMode === "group") {
+      let limit = parseInt(groupLimitInput.value, 10);
+      if (!Number.isFinite(limit)) limit = 10;
+      payload.limit = Math.min(20, Math.max(2, limit));
+    }
+    socket.emit("join_room", payload);
+  });
+
+  // ---------- ランダムチャット:入室 ----------
+  const randomNameInput = document.getElementById("randomNameInput");
+  const randomError = document.getElementById("randomError");
+  const randomJoinBtn = document.getElementById("randomJoinBtn");
+
+  function showRandomError(text) {
+    randomError.textContent = text;
+    randomError.classList.toggle("hidden", !text);
+  }
+
+  randomJoinBtn.addEventListener("click", () => {
+    const displayName = randomNameInput.value.trim() || t("default_name");
+    showRandomError("");
+    socket.emit("join_random", { displayName });
+  });
+
+  // ---------- 待機画面 ----------
+  const waitingCodeEl = document.getElementById("waitingCode");
+  const waitingHint = document.getElementById("waitingHint");
+  const waitingStatus = document.getElementById("waitingStatus");
+  const cancelBtn = document.getElementById("cancelBtn");
+
+  function renderWaiting(code) {
+    lastWaitingCode = code;
+    const key = currentMode === "random" ? "waiting_random" : "waiting_personal";
+    waitingStatus.innerHTML = t(key) + '<span class="dots"><span>.</span><span>.</span><span>.</span></span>';
+    if (code) {
+      waitingCodeEl.textContent = code;
+      waitingCodeEl.classList.remove("hidden");
+      waitingHint.classList.remove("hidden");
+    } else {
+      waitingCodeEl.classList.add("hidden");
+      waitingHint.classList.add("hidden");
+    }
+  }
+
+  cancelBtn.addEventListener("click", () => {
+    socket.emit("leave_room");
+    showScreen("modeSelect", "title_select");
+  });
+
+  socket.on("join_error", ({ message, code }) => {
+    const text = code && I18N[lang][code] ? t(code) : (message || t("error"));
+    if (currentMode === "random") showRandomError(text);
+    else showCodeError(text);
+  });
+
+  socket.on("waiting", ({ code }) => {
+    renderWaiting(code);
+    showScreen("waiting");
+  });
+
+  // ---------- 通話中(個人/ランダム共通) ----------
+  const matchedStatus = document.getElementById("matchedStatus");
+  const chatBox = document.getElementById("chatBox");
+  const msgInput = document.getElementById("msgInput");
+  const sendBtn = document.getElementById("sendBtn");
+  const leaveBtn = document.getElementById("leaveBtn");
+  const muteBtn = document.getElementById("muteBtn");
+  const remoteAudio = document.getElementById("remoteAudio");
+  const callState = document.getElementById("callState");
+
+  let muted = false;
+
+  leaveBtn.addEventListener("click", () => {
+    VoiceCall.stop();
+    socket.emit("leave_room");
+    chatBox.innerHTML = "";
+    showScreen("modeSelect", "title_select");
+  });
+
+  muteBtn.addEventListener("click", () => {
+    muted = !muted;
+    VoiceCall.setMuted(muted);
+    muteBtn.textContent = muted ? t("btn_unmute") : t("btn_mute");
+  });
+
+  socket.on("matched", ({ partnerName, initiator }) => {
+    lastPartnerName = partnerName;
+    matchedStatus.textContent = t("status_matched", { name: partnerName });
+    muted = false;
+    muteBtn.textContent = t("btn_mute");
+    showScreen("matched", currentMode === "random" ? "title_random" : "title_personal");
+    callState.textContent = t("call_prefix") + t("call_connecting");
+    VoiceCall.start(socket, initiator, remoteAudio, (s) => {
+      callState.textContent = t("call_prefix") + (s === "no-mic" ? t("call_nomic") : s);
+    }).catch((e) => {
+      console.error(e);
+      callState.textContent = t("call_prefix") + t("call_failed");
+    });
+  });
+
+  socket.on("partner_left", () => {
+    VoiceCall.stop();
+    socket.emit("leave_room");
+    chatBox.innerHTML = "";
+    showScreen("modeSelect", "title_select");
+    showCodeError(t("msg_partner_left"));
+  });
+
+  // ---------- グループチャット中 ----------
+  const groupStatus = document.getElementById("groupStatus");
+  const groupMembers = document.getElementById("groupMembers");
+  const groupChatBox = document.getElementById("groupChatBox");
+  const groupMsgInput = document.getElementById("groupMsgInput");
+  const groupSendBtn = document.getElementById("groupSendBtn");
+  const groupLeaveBtn = document.getElementById("groupLeaveBtn");
+
+  groupLeaveBtn.addEventListener("click", () => {
+    socket.emit("leave_room");
+    groupChatBox.innerHTML = "";
+    showScreen("modeSelect", "title_select");
+  });
+
+  function renderGroupStatus(info) {
+    lastGroupInfo = info;
+    groupStatus.textContent = t("status_group", { count: info.members.length, limit: info.limit, code: info.code });
+    groupMembers.textContent = t("label_members", { list: info.members.map((m) => m.name).join(currentMode === "group" && lang === "en" ? ", " : "、") });
+  }
+
+  socket.on("group_update", ({ code, members, limit }) => {
+    currentMode = "group";
+    renderGroupStatus({ code, members, limit });
+    showScreen("groupRoom", "title_group");
+  });
+
+  // ---------- チャット共通処理 ----------
+  const HEX_RE = /^#[0-9a-f]{6}$/i;
+  const isColorBlocked = () => {
+    try { return localStorage.getItem("blockPartnerColor") === "1"; } catch { return false; }
+  };
+  // 相手のメッセージに、受け取った色を反映する(ブロック中は標準色に戻す)
+  function applyPartnerColors() {
+    const blocked = isColorBlocked();
+    document.querySelectorAll(".msg.them").forEach((el) => {
+      const nc = el.dataset.nameColor;
+      const tc = el.dataset.textColor;
+      const who = el.querySelector(".who");
+      el.style.color = !blocked && tc ? tc : "";
+      if (who) {
+        who.style.color = !blocked && nc ? nc : "";
+        who.style.opacity = !blocked && nc ? "1" : "";
       }
-    } catch (err) {
-      console.error("[join_random error]", err);
-      socket.emit("join_error", { message: "参加中にエラーが発生しました" });
+    });
+  }
+  // 自分が設定している色(送信時に相手へ渡す)
+  function getMyColors() {
+    const get = (k) => {
+      try {
+        const v = localStorage.getItem(k);
+        return HEX_RE.test(v || "") ? v : null;
+      } catch { return null; }
+    };
+    return { nameColor: get("myNameColor"), textColor: get("myMsgColor") };
+  }
+
+  function renderMessage(targetBox, { from, name, text, nameColor, textColor }) {
+    const div = document.createElement("div");
+    const mine = from === socket.id;
+    div.className = "msg " + (mine ? "me" : "them");
+    if (!mine) {
+      if (HEX_RE.test(nameColor || "")) div.dataset.nameColor = nameColor;
+      if (HEX_RE.test(textColor || "")) div.dataset.textColor = textColor;
     }
+    // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
+    const who = document.createElement("span");
+    who.className = "who";
+    who.textContent = name;
+    div.appendChild(who);
+    div.appendChild(document.createTextNode(text));
+    targetBox.appendChild(div);
+    if (!mine) applyPartnerColors();
+    targetBox.scrollTop = targetBox.scrollHeight;
+  }
+
+  socket.on("chat_message", (data) => {
+    const targetBox = currentMode === "group" ? groupChatBox : chatBox;
+    renderMessage(targetBox, data);
   });
 
-  // ---- チャット送信(個人・グループ・ランダム共通) ----
-  socket.on("send_message", (payload) => {
-    try {
-      const text = payload && typeof payload.text === "string" ? payload.text : "";
-      const trimmed = text.trim();
-      if (!trimmed) return;
+  function sendMessage() {
+    const text = msgInput.value.trim();
+    if (!text) return;
+    socket.emit("send_message", { text, ...getMyColors() });
+    msgInput.value = "";
+  }
+  sendBtn.addEventListener("click", sendMessage);
+  msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
 
-      const code = socketRoom.get(socket.id);
-      if (!code) return;
-      const room = rooms.get(code);
-      if (!room) return;
-      const me = room.members.find((m) => m.socketId === socket.id);
-      if (!me) return;
+  function sendGroupMessage() {
+    const text = groupMsgInput.value.trim();
+    if (!text) return;
+    socket.emit("send_message", { text, ...getMyColors() });
+    groupMsgInput.value = "";
+  }
+  groupSendBtn.addEventListener("click", sendGroupMessage);
+  groupMsgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendGroupMessage(); });
 
-      io.to(code).emit("chat_message", {
-        from: socket.id,
-        name: me.name,
-        text: trimmed.slice(0, 1000),
-        // 色は #rrggbb の形式だけ通す(それ以外は null)
-        nameColor: sanitizeColor(payload.nameColor),
-        textColor: sanitizeColor(payload.textColor),
-        ts: Date.now(),
-      });
-    } catch (err) {
-      console.error("[send_message error]", err);
-    }
+  // 初期表示に言語を反映
+  applyStaticI18n();
+</script>
+<script src="/settings.js"></script>
+<script>
+// 自分のユーザー名の色・文字色を変更する(設定 > テーマ)
+(() => {
+  const root = document.documentElement;
+  const load = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const save = (k, v) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} };
+  const toHex = (rgb) =>
+    '#' + rgb.match(/\d+/g).slice(0, 3).map(n => (+n).toString(16).padStart(2, '0')).join('');
+
+  // 現在のテーマでの標準色(ピッカーの初期表示用)
+  function probe() {
+    const el = document.createElement('div');
+    el.className = 'msg me';
+    el.style.cssText = 'position:absolute; visibility:hidden;';
+    document.body.appendChild(el);
+    const c = getComputedStyle(el).color;
+    el.remove();
+    return toHex(c);
+  }
+
+  function setupColor({ key, attr, cssVar, inputId, resetId }) {
+    const input = document.getElementById(inputId);
+    const resetBtn = document.getElementById(resetId);
+    const sync = () => { input.value = probe(); };
+    const apply = (c) => { root.style.setProperty(cssVar, c); root.setAttribute(attr, ''); };
+
+    const saved = load(key);
+    if (saved) { apply(saved); input.value = saved; } else { sync(); }
+
+    input.addEventListener('input', (e) => { apply(e.target.value); save(key, e.target.value); });
+
+    resetBtn.addEventListener('click', () => {
+      root.style.removeProperty(cssVar);
+      root.removeAttribute(attr);
+      save(key, null);
+      sync();
+    });
+
+    // テーマ切り替え時、未カスタムならピッカー表示を標準色に追従させる
+    new MutationObserver(() => { if (!load(key)) sync(); })
+      .observe(root, { attributes: true, attributeFilter: ['data-theme'] });
+  }
+
+  setupColor({ key: 'myNameColor', attr: 'data-custom-name', cssVar: '--my-name-color',
+               inputId: 'myNameColor', resetId: 'myNameReset' });
+  setupColor({ key: 'myMsgColor', attr: 'data-custom-me', cssVar: '--my-msg-color',
+               inputId: 'myMsgColor', resetId: 'myMsgReset' });
+
+  // 相手のカラー変更をブロック(切り替えると表示中のメッセージにもすぐ反映)
+  const blockEl = document.getElementById('blockPartnerColor');
+  blockEl.checked = load('blockPartnerColor') === '1';
+  blockEl.addEventListener('change', () => {
+    save('blockPartnerColor', blockEl.checked ? '1' : null);
+    applyPartnerColors();
   });
-
-  // WebRTC シグナリング: offer / answer / ICE candidate を相手に中継するだけ
-  // (personal / random の2人部屋でのみ使われる)
-  socket.on("signal", (payload) => {
-    try {
-      if (!payload || !["offer", "answer", "candidate"].includes(payload.type)) return;
-      const code = socketRoom.get(socket.id);
-      if (!code) return;
-      const room = rooms.get(code);
-      if (!room) return;
-      const partner = room.members.find((m) => m.socketId !== socket.id);
-      if (!partner) return;
-      io.to(partner.socketId).emit("signal", {
-        type: payload.type,
-        sdp: payload.sdp,
-        candidate: payload.candidate,
-      });
-    } catch (err) {
-      console.error("[signal error]", err);
-    }
-  });
-
-  socket.on("leave_room", () => {
-    leaveCurrentRoom(socket, true);
-  });
-
-  socket.on("disconnect", () => {
-    leaveCurrentRoom(socket, true);
-    console.log(`[disconnect] ${socket.id}`);
-  });
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Matching/chat server listening on http://localhost:${PORT}`);
-});
+})();
+</script>
+</body>
+</html>
