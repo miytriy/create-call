@@ -129,6 +129,15 @@
   .msg.me .bubble { background: #86dd86; color: #10320f; border-bottom-right-radius: 4px; }
   .msg-time { font-size: 10px; color: #5f6473; white-space: nowrap; flex: none; }
   .system-msg { text-align: center; font-size: 11px; color: #8a8f9e; margin: 4px 0 12px; }
+  /* --- メンション --- */
+  .mention-list { display: flex; flex-direction: column; gap: 4px; margin: -4px 0 8px; }
+  .mention-list button {
+    width: auto; text-align: left; margin: 0; padding: 6px 10px; font-size: 13px;
+    background: #20242f; border: 1px solid #33384a; color: inherit; border-radius: 8px;
+  }
+  .mention { color: #e0a840; font-weight: 700; }
+  .msg.mention-me .bubble { box-shadow: 0 0 0 2px #e0a840 inset; }
+  [data-theme="light"] .mention-list button { background: #efeee8; border-color: #d4d2c8; color: #3a3d48; }
   .composer { display: flex; align-items: center; gap: 8px; }
   .composer input { flex: 1; margin-bottom: 0; border-radius: 999px; padding: 10px 16px; }
   .send-btn { width: 42px; height: 42px; flex: none; margin: 0; padding: 0; border-radius: 50%; font-size: 16px; }
@@ -285,8 +294,9 @@
     <p class="status" id="groupStatus"></p>
     <p class="member-list" id="groupMembers"></p>
     <div id="groupChatBox" class="chat-box"></div>
+    <div id="mentionList" class="mention-list hidden"></div>
     <div class="row" style="margin-bottom:8px;">
-      <input id="groupMsgInput" placeholder="メッセージを入力" />
+      <input id="groupMsgInput" placeholder="メッセージを入力(@で相手を選べます)" />
       <button id="groupSendBtn">送信</button>
     </div>
     <button id="groupLeaveBtn" class="secondary">退出する</button>
@@ -365,6 +375,8 @@
   }
 
   let currentMode = null; // 'personal' | 'group' | 'random'
+  let myGroupName = null; // グループチャットでの自分の表示名(メンション判定に使用)
+  let groupMemberNames = []; // グループチャットの現在の参加者名(メンション候補・ハイライトに使用)
 
   document.querySelectorAll(".mode-card").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -420,6 +432,7 @@
       let limit = parseInt(groupLimitInput.value, 10);
       if (!Number.isFinite(limit)) limit = 10;
       payload.limit = Math.min(20, Math.max(2, limit));
+      myGroupName = displayName;
     }
     socket.emit("join_room", payload);
   });
@@ -534,11 +547,20 @@
   groupLeaveBtn.addEventListener("click", () => {
     socket.emit("leave_room");
     groupChatBox.innerHTML = "";
+    myGroupName = null;
+    groupMemberNames = [];
     showScreen("modeSelect", "💬 チャットを選ぶ");
   });
 
-  socket.on("group_update", ({ code, members, limit }) => {
+  socket.on("group_update", ({ code, members, limit, joinedName, leftName }) => {
+    // 自分がまだ入室画面を見ていない(=これが自分自身の入室)場合は、入室メッセージを出さない
+    const alreadyInRoom = currentMode === "group" && !document.getElementById("groupRoom").classList.contains("hidden");
     currentMode = "group";
+    groupMemberNames = members.map((m) => m.name);
+    if (alreadyInRoom) {
+      if (joinedName) addSystemMessage(groupChatBox, `👋 ${joinedName} さんが入室しました`);
+      if (leftName) addSystemMessage(groupChatBox, `🚪 ${leftName} さんが退出しました`);
+    }
     groupStatus.textContent = `👥 グループチャット(${members.length}/${limit}人) コード: ${code}`;
     groupMembers.textContent = "参加者: " + members.map((m) => m.name).join("、");
     showScreen("groupRoom", "👥 グループチャット");
@@ -611,8 +633,35 @@
     targetBox.scrollTop = targetBox.scrollHeight;
   }
 
+  // ---------- メンション(@名前) ----------
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  // 本文中の「@メンバー名」を強調表示する。自分宛てのメンションが含まれていたら true を返す。
+  // 名前を DOM ノードとして個別に組み立てるため、innerHTML は使わずXSS対策も維持している。
+  function renderTextWithMentions(container, text) {
+    if (!groupMemberNames.length) { container.textContent = text; return false; }
+    const names = [...new Set(groupMemberNames)].sort((a, b) => b.length - a.length).map(escapeRegExp);
+    const re = new RegExp("@(" + names.join("|") + ")", "g");
+    let lastIndex = 0;
+    let match;
+    let mentionsMe = false;
+    while ((match = re.exec(text))) {
+      if (match.index > lastIndex) container.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
+      const span = document.createElement("span");
+      span.className = "mention";
+      span.textContent = "@" + match[1];
+      container.appendChild(span);
+      if (myGroupName && match[1] === myGroupName) mentionsMe = true;
+      lastIndex = re.lastIndex;
+    }
+    if (lastIndex < text.length) container.appendChild(document.createTextNode(text.slice(lastIndex)));
+    return mentionsMe;
+  }
+
   function renderMessage(targetBox, { from, name, text, nameColor, textColor, ts }) {
     const mine = from === socket.id;
+    const isGroup = targetBox === groupChatBox;
     const row = document.createElement("div");
     row.className = "msg " + (mine ? "me" : "them");
     if (!mine) {
@@ -637,7 +686,13 @@
     const bubble = document.createElement("div");
     bubble.className = "bubble";
     // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
-    bubble.textContent = text;
+    let mentionsMe = false;
+    if (isGroup) {
+      mentionsMe = renderTextWithMentions(bubble, text);
+    } else {
+      bubble.textContent = text;
+    }
+    if (mentionsMe) row.classList.add("mention-me");
     const time = document.createElement("span");
     time.className = "msg-time";
     time.textContent = formatTime(ts);
@@ -664,11 +719,53 @@
   sendBtn.addEventListener("click", sendMessage);
   msgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendMessage(); });
 
+  // ---------- メンション候補(@入力時に一致する参加者名を表示) ----------
+  const mentionList = document.getElementById("mentionList");
+
+  function hideMentionList() {
+    mentionList.classList.add("hidden");
+    mentionList.innerHTML = "";
+  }
+
+  function updateMentionSuggestions() {
+    const val = groupMsgInput.value;
+    const caret = groupMsgInput.selectionStart;
+    const uptoCaret = val.slice(0, caret);
+    const atIndex = uptoCaret.lastIndexOf("@");
+    if (atIndex === -1 || /\s/.test(uptoCaret.slice(atIndex + 1))) { hideMentionList(); return; }
+
+    const partial = uptoCaret.slice(atIndex + 1).toLowerCase();
+    const candidates = groupMemberNames.filter((n) => n.toLowerCase().includes(partial)).slice(0, 5);
+    if (candidates.length === 0) { hideMentionList(); return; }
+
+    mentionList.innerHTML = "";
+    candidates.forEach((n) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = "@" + n;
+      // mousedown で処理する(click だと先に input の blur が走ってしまうため)
+      b.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        const before = val.slice(0, atIndex);
+        const after = val.slice(caret);
+        groupMsgInput.value = before + "@" + n + " " + after;
+        hideMentionList();
+        groupMsgInput.focus();
+      });
+      mentionList.appendChild(b);
+    });
+    mentionList.classList.remove("hidden");
+  }
+
+  groupMsgInput.addEventListener("input", updateMentionSuggestions);
+  groupMsgInput.addEventListener("blur", () => { setTimeout(hideMentionList, 150); });
+
   function sendGroupMessage() {
     const text = groupMsgInput.value.trim();
     if (!text) return;
     socket.emit("send_message", { text, ...getMyColors() });
     groupMsgInput.value = "";
+    hideMentionList();
   }
   groupSendBtn.addEventListener("click", sendGroupMessage);
   groupMsgInput.addEventListener("keydown", (e) => { if (e.key === "Enter") sendGroupMessage(); });
