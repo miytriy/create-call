@@ -4,8 +4,8 @@
   // ★ Firebase コンソール(Authentication)で取得した値に置き換えてください
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBwg8F35Joy0frgQ0yohf-nTobjc1BUgzc",
-   authDomain: "new-world-ae4c0.firebaseapp.com",
-   projectId: "new-world-ae4c0",
+    authDomain: "new-world-ae4c0.firebaseapp.com",
+    projectId: "new-world-ae4c0",
   };
   const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
   const configured = !FIREBASE_CONFIG.apiKey.startsWith("YOUR_");
@@ -15,7 +15,7 @@
   const DEFAULTS = {
     theme: "system", notify: false,
     micId: "", spkId: "", micVol: 100, spkVol: 100, echo: true, noise: true,
-    joinMicMute: false, joinSpkMute: false,
+    joinMicMute: true, joinSpkMute: true,
   };
   let S = { ...DEFAULTS };
   try { S = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch {}
@@ -192,12 +192,154 @@
     setSpkMuted(S.joinSpkMute);
   });
 
+  // ---------- アバター(アイコン画像) ----------
+  // localStorage に保存(サインインしていなくても、この端末では使える)。
+  // サインイン中は Firestore にも保存し、他の端末からも同じアイコンで使えるようにする。
+  const AVATAR_KEY = "myAvatar";
+  function loadLocalAvatar() {
+    try { return localStorage.getItem(AVATAR_KEY); } catch { return null; }
+  }
+  function saveLocalAvatar(dataUrl) {
+    try {
+      if (dataUrl) localStorage.setItem(AVATAR_KEY, dataUrl);
+      else localStorage.removeItem(AVATAR_KEY);
+    } catch {}
+  }
+  // 変更を index.html 側(チャット表示)に伝える
+  function broadcastAvatarChange() {
+    window.dispatchEvent(new CustomEvent("avatarchange"));
+  }
+
+  // 画像ファイルを、正方形に切り抜いて小さく圧縮した data URL に変換する
+  function fileToAvatarDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith("image/")) { reject(new Error("画像ファイルを選んでください")); return; }
+      if (file.size > 8 * 1024 * 1024) { reject(new Error("ファイルが大きすぎます(8MBまで)")); return; }
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const SIZE = 128;
+        const canvas = document.createElement("canvas");
+        canvas.width = SIZE; canvas.height = SIZE;
+        const ctx = canvas.getContext("2d");
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+        resolve(canvas.toDataURL("image/jpeg", 0.72));
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("画像を読み込めませんでした")); };
+      img.src = url;
+    });
+  }
+
+  async function syncAvatarToCloud(dataUrl) {
+    if (!fb || !fb.auth.currentUser || !fb.fs) return;
+    const { doc, setDoc, deleteDoc } = fb.fs.m;
+    const ref = doc(fb.fs.db, "avatars", fb.auth.currentUser.uid);
+    if (dataUrl) await setDoc(ref, { data: dataUrl, updatedAt: Date.now() });
+    else await deleteDoc(ref).catch(() => {});
+  }
+
+  async function syncAvatarFromCloud(user) {
+    if (!fb || !fb.fs || !user) return;
+    try {
+      const { doc, getDoc } = fb.fs.m;
+      const snap = await getDoc(doc(fb.fs.db, "avatars", user.uid));
+      if (snap.exists() && snap.data().data) {
+        saveLocalAvatar(snap.data().data);
+        broadcastAvatarChange();
+        renderAvatarPreview();
+      }
+    } catch (e) { console.warn("[avatar] クラウドからの取得に失敗", e); }
+  }
+
+  let avatarPreviewEl = null;
+  function renderAvatarPreview() {
+    if (!avatarPreviewEl) return;
+    const url = loadLocalAvatar();
+    avatarPreviewEl.style.backgroundImage = url ? `url(${url})` : "none";
+    avatarPreviewEl.textContent = url ? "" : "🙂";
+  }
+
+  function buildAvatarSection(container) {
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex; align-items:center; gap:12px; margin-bottom:14px;";
+
+    avatarPreviewEl = document.createElement("div");
+    avatarPreviewEl.style.cssText =
+      "width:56px; height:56px; border-radius:50%; background:#20242f; background-size:cover; " +
+      "background-position:center; display:flex; align-items:center; justify-content:center; font-size:24px; flex:none;";
+    renderAvatarPreview();
+
+    const btnCol = document.createElement("div");
+    btnCol.style.cssText = "flex:1;";
+
+    const fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.accept = "image/*";
+    fileInput.style.display = "none";
+
+    const changeBtn = document.createElement("button");
+    changeBtn.type = "button";
+    changeBtn.className = "secondary";
+    changeBtn.textContent = "画像を変更";
+    changeBtn.style.margin = "0 0 6px";
+    changeBtn.onclick = () => fileInput.click();
+
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.className = "secondary";
+    removeBtn.textContent = "画像を削除";
+    removeBtn.style.margin = "0";
+
+    const errEl = document.createElement("p");
+    errEl.className = "hint";
+    errEl.style.margin = "4px 0 0";
+
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = "";
+      if (!file) return;
+      try {
+        errEl.textContent = "処理中…";
+        const dataUrl = await fileToAvatarDataUrl(file);
+        saveLocalAvatar(dataUrl);
+        broadcastAvatarChange();
+        renderAvatarPreview();
+        errEl.textContent = fb && fb.auth.currentUser ? "保存しました(このアカウントに同期されます)" : "保存しました(この端末のみ)";
+        await syncAvatarToCloud(dataUrl);
+      } catch (e) {
+        errEl.textContent = "エラー: " + e.message;
+      }
+    });
+
+    removeBtn.addEventListener("click", async () => {
+      saveLocalAvatar(null);
+      broadcastAvatarChange();
+      renderAvatarPreview();
+      errEl.textContent = "";
+      await syncAvatarToCloud(null);
+    });
+
+    btnCol.appendChild(changeBtn);
+    btnCol.appendChild(removeBtn);
+    btnCol.appendChild(errEl);
+    wrap.appendChild(avatarPreviewEl);
+    wrap.appendChild(btnCol);
+    wrap.appendChild(fileInput);
+    container.appendChild(wrap);
+  }
+
   // ---------- アカウント (Firebase Authentication) ----------
   let fb = null;
 
   function renderAccount(user) {
     const box = $("accountBody");
     box.innerHTML = "";
+
+    buildAvatarSection(box);
+
     const add = (tag, text, cls) => {
       const e = document.createElement(tag);
       if (text) e.textContent = text;
@@ -220,7 +362,6 @@
     if (!configured) add("p", "アカウント機能を使うには、settings.js の FIREBASE_CONFIG を設定してください。", "hint");
 
     if (user) {
-      if (user.photoURL) { const img = add("img", "", "avatar"); img.src = user.photoURL; img.alt = ""; }
       add("p", user.displayName || "(名前未設定)").style.fontWeight = "600";
       add("p", user.email || "", "hint").style.margin = "0 0 12px";
       const hasPw = user.providerData.some((p) => p.providerId === "password");
@@ -257,6 +398,7 @@
       const del = button("アカウントを削除", "secondary", async () => {
         if (!confirm("アカウントを完全に削除します。元に戻せません。よろしいですか?")) return;
         try {
+          await syncAvatarToCloud(null);
           await fb.m.deleteUser(user);
         } catch (e) {
           if (e.code !== "auth/requires-recent-login") throw e;
@@ -274,7 +416,7 @@
       del.style.color = "#ff6b6b";
       if (user.displayName) $("nameInput").value = user.displayName;
     } else {
-      add("p", "サインインしていません。アカウントを作成すると、名前などを引き継げます。", "hint").style.margin = "0 0 12px";
+      add("p", "サインインしていません。アカウントを作成すると、名前やアイコンを他の端末でも引き継げます。", "hint").style.margin = "0 0 12px";
       button("Googleでサインイン", "", () => fb.m.signInWithPopup(fb.auth, new fb.m.GoogleAuthProvider()));
       const email = add("input"); email.type = "email"; email.placeholder = "メールアドレス";
       const pw = add("input"); pw.type = "password"; pw.placeholder = "パスワード(6文字以上)";
@@ -290,13 +432,19 @@
   async function initAuth() {
     renderAccount(null);
     if (!configured) return;
-    const [{ initializeApp }, m] = await Promise.all([
+    const [{ initializeApp }, m, fsMod] = await Promise.all([
       import(FB + "firebase-app.js"),
       import(FB + "firebase-auth.js"),
+      import(FB + "firebase-firestore.js"),
     ]);
-    const auth = m.getAuth(initializeApp(FIREBASE_CONFIG));
-    fb = { auth, m };
-    m.onAuthStateChanged(auth, renderAccount);
+    const app = initializeApp(FIREBASE_CONFIG);
+    const auth = m.getAuth(app);
+    const db = fsMod.getFirestore(app);
+    fb = { auth, m, fs: { db, m: fsMod } };
+    m.onAuthStateChanged(auth, (user) => {
+      renderAccount(user);
+      if (user) syncAvatarFromCloud(user);
+    });
 
     // メール確認の完了を自動で検出する
     // (確認済みかどうかは、reload() しないと端末側の情報が更新されないため)
