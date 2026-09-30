@@ -81,10 +81,6 @@
     padding: 10px;
     margin-bottom: 10px;
   }
-  .msg { margin-bottom: 6px; font-size: 14px; }
-  .msg .who { font-size: 11px; opacity: .6; margin-right: 4px; }
-  .msg.me { color: #e0a840; text-align: right; }
-  .msg.them { color: #c7cad3; }
   .row { display: flex; gap: 8px; }
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
@@ -103,7 +99,7 @@
     font-size: 12px; border: 1px solid #33384a; border-radius: 8px;
   }
   .member-list { font-size: 12px; color: #8a8f9e; margin: -6px 0 10px; word-break: break-all; }
-  /* --- 個人チャットのメッセージ画面 --- */
+  /* --- 個人チャットのヘッダー --- */
   .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #2a2e3a; }
   .chat-header-info { flex: 1; min-width: 0; }
   .chat-header-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -115,28 +111,54 @@
   .mute-row { display: flex; gap: 8px; margin-bottom: 10px; }
   .mute-row button { margin-bottom: 0; font-size: 12px; padding: 8px 6px; }
   .chat-box-tall { height: 320px; }
-  .msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .system-msg { text-align: center; font-size: 11px; color: #8a8f9e; margin: 4px 0 12px; }
+  /* --- メッセージ(フラット表示: アイコン + 名前/時刻 + 本文) --- */
+  .msg-flat { display: flex; gap: 10px; padding: 6px 4px; border-radius: 10px; position: relative; }
+  .msg-flat.picker-open { background: rgba(255,255,255,.06); }
+  [data-theme="light"] .msg-flat.picker-open { background: rgba(0,0,0,.04); }
   .avatar-circle {
-    width: 22px; height: 22px; border-radius: 50%; flex: none;
-    background: #33384a; color: #fff; font-size: 11px; font-weight: 600;
+    width: 34px; height: 34px; border-radius: 50%; flex: none; margin-top: 1px;
+    background: #33384a; color: #fff; font-size: 13px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }
-  .bubble-row { display: flex; align-items: flex-end; gap: 6px; }
-  .msg.me .bubble-row { justify-content: flex-end; }
-  .bubble { max-width: var(--bubble-max, 78%); padding: 8px 12px; border-radius: 15px; font-size: 14px; line-height: 1.4; word-break: break-word; background: #20242f; text-align: left; }
-  .chat-box-tall .msg { margin-bottom: 10px; }
-  .msg.them .bubble { border-bottom-left-radius: 4px; }
-  .msg.me .bubble { background: #86dd86; color: #10320f; border-bottom-right-radius: 4px; }
-  .msg-time { font-size: 10px; color: #5f6473; white-space: nowrap; flex: none; }
-  .system-msg { text-align: center; font-size: 11px; color: #8a8f9e; margin: 4px 0 12px; }
-  /* --- メンション --- */
+  .msg-body { flex: 1; min-width: 0; }
+  .msg-head { display: flex; align-items: baseline; gap: 7px; }
+  .msg-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .msg-time { font-size: 10.5px; color: #5f6473; flex: none; }
+  .msg-text { font-size: 14px; line-height: 1.5; margin-top: 2px; word-break: break-word; white-space: pre-wrap; }
+  .msg-flat.mine .msg-name { color: var(--my-name-color, #e0a840); }
+  .msg-flat.mine .msg-text { color: var(--my-msg-color, inherit); }
+  .mention { color: #e0a840; font-weight: 700; }
+  .msg-flat.mention-me { background: rgba(224,168,64,.12); }
+  .read-receipt { font-size: 10.5px; color: #5f6473; margin-top: 3px; text-align: right; }
+  /* --- リアクション --- */
+  .reaction-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .reaction-pill {
+    width: auto; margin: 0; padding: 2px 9px; font-size: 12.5px; border-radius: 999px;
+    background: #20242f; border: 1px solid #33384a; color: inherit; display: inline-flex; align-items: center; gap: 4px;
+  }
+  .reaction-pill.mine { border-color: #e0a840; background: rgba(224,168,64,.18); }
+  [data-theme="light"] .reaction-pill { background: #efeee8; border-color: #d4d2c8; }
+  [data-theme="light"] .reaction-pill.mine { border-color: #e0a840; background: rgba(224,168,64,.18); }
+  /* --- 絵文字ピッカー(長押しで表示) --- */
+  .emoji-picker {
+    position: absolute; z-index: 20; top: -6px; left: 40px;
+    background: #181b25; border: 1px solid #2a2e3a; border-radius: 14px; padding: 5px;
+    display: flex; gap: 2px; box-shadow: 0 6px 20px rgba(0,0,0,.45);
+  }
+  .emoji-picker button {
+    width: 34px; height: 34px; font-size: 18px; background: none; border: none;
+    margin: 0; padding: 0; border-radius: 8px; color: inherit;
+  }
+  .emoji-picker button:active { background: #2a2e3a; }
+  [data-theme="light"] .emoji-picker { background: #fff; border-color: #dcdad2; }
+  [data-theme="light"] .emoji-picker button:active { background: #efeee8; }
+  /* --- 送信欄 --- */
   .mention-list { display: flex; flex-direction: column; gap: 4px; margin: -4px 0 8px; }
   .mention-list button {
     width: auto; text-align: left; margin: 0; padding: 6px 10px; font-size: 13px;
     background: #20242f; border: 1px solid #33384a; color: inherit; border-radius: 8px;
   }
-  .mention { color: #e0a840; font-weight: 700; }
-  .msg.mention-me .bubble { box-shadow: 0 0 0 2px #e0a840 inset; }
   [data-theme="light"] .mention-list button { background: #efeee8; border-color: #d4d2c8; color: #3a3d48; }
   .composer { display: flex; align-items: center; gap: 8px; }
   .composer input { flex: 1; margin-bottom: 0; border-radius: 999px; padding: 10px 16px; }
@@ -145,8 +167,6 @@
   [data-theme="light"] .chat-header { border-color: #dcdad2; }
   [data-theme="light"] .chat-header-sub, [data-theme="light"] .system-msg { color: #6b6f7c; }
   [data-theme="light"] .avatar-circle { background: #d4d2c8; color: #3a3d48; }
-  [data-theme="light"] .msg.them .bubble { background: #f7f6f2; color: #1d1f27; }
-  [data-theme="light"] .msg.me .bubble { background: #7fd67f; color: #0d290d; }
   /* --- 待機中の演出 --- */
   .spinner {
     width: 44px; height: 44px; margin: 4px auto 16px;
@@ -183,12 +203,8 @@
   [data-theme="light"] input, [data-theme="light"] .sheet select, [data-theme="light"] .code-badge, [data-theme="light"] .chat-box, [data-theme="light"] .meter { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
   [data-theme="light"] button.secondary, [data-theme="light"] .tab, [data-theme="light"] .gear, [data-theme="light"] .mode-card, [data-theme="light"] .back-link { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
   [data-theme="light"] .tab.on { background: #e0a840; color: #1a1206; }
-  [data-theme="light"] .msg.them { color: #3a3d48; }
-  [data-theme="light"] .msg.me { color: #a8710f; }
   [data-theme="light"] label, [data-theme="light"] .hint, [data-theme="light"] .mode-card .mc-desc, [data-theme="light"] .member-list { color: #6b6f7c; }
   [data-theme="light"] .sw { color: #1d1f27; }
-  /* --- 自分のチャットのカスタム色(指定があるときだけ有効) --- */
-  [data-custom-me] .msg.me .bubble { color: var(--my-msg-color); }
 </style>
 </head>
 <body>
@@ -503,6 +519,7 @@
     VoiceCall.stop();
     socket.emit("leave_room");
     chatBox.innerHTML = "";
+    messageEls.clear();
     showScreen("modeSelect", "💬 チャットを選ぶ");
   });
 
@@ -517,6 +534,7 @@
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
     chatBox.innerHTML = "";
+    messageEls.clear();
     showScreen("matched", currentMode === "random" ? "🎲 ランダムチャット" : "🔑 個人チャット");
     addSystemMessage(chatBox, `✅ ${partnerName} さんとマッチングしました！`);
     callState.textContent = "通話: 接続準備中…";
@@ -532,6 +550,7 @@
     VoiceCall.stop();
     socket.emit("leave_room");
     chatBox.innerHTML = "";
+    messageEls.clear();
     showScreen("modeSelect", "💬 チャットを選ぶ");
     showCodeError("相手が退出しました。もう一度入室できます。");
   });
@@ -547,6 +566,7 @@
   groupLeaveBtn.addEventListener("click", () => {
     socket.emit("leave_room");
     groupChatBox.innerHTML = "";
+    messageEls.clear();
     myGroupName = null;
     groupMemberNames = [];
     showScreen("modeSelect", "💬 チャットを選ぶ");
@@ -566,29 +586,6 @@
     showScreen("groupRoom", "👥 グループチャット");
   });
 
-  // ---------- 吹き出しの折り返し幅(全角「あ」18文字 / 半角小文字「r」41文字 / 半角大文字「R」27文字で折り返す) ----------
-  // 実際に使っているフォントで文字幅は変わる(特に半角はプロポーショナルフォントだと
-  // 文字ごとに幅が違う)ため、代表文字を実際に描画して幅を測り、一番大きい幅を採用する。
-  function measureTextWidth(str) {
-    const probe = document.createElement("span");
-    probe.style.cssText = "position:absolute; visibility:hidden; white-space:pre; left:-9999px; font-size:14px;";
-    probe.textContent = str;
-    document.body.appendChild(probe);
-    const w = probe.getBoundingClientRect().width;
-    probe.remove();
-    return w;
-  }
-  function setupBubbleMaxWidth() {
-    const widths = [
-      measureTextWidth("あ".repeat(18)),
-      measureTextWidth("r".repeat(41)),
-      measureTextWidth("R".repeat(27)),
-    ];
-    const max = Math.ceil(Math.max(...widths)) + 1;
-    document.documentElement.style.setProperty("--bubble-max", max + "px");
-  }
-  setupBubbleMaxWidth();
-
   // ---------- チャット共通処理 ----------
   const HEX_RE = /^#[0-9a-f]{6}$/i;
   const isColorBlocked = () => {
@@ -597,16 +594,13 @@
   // 相手のメッセージに、受け取った色を反映する(ブロック中は標準色に戻す)
   function applyPartnerColors() {
     const blocked = isColorBlocked();
-    document.querySelectorAll(".msg.them").forEach((el) => {
+    document.querySelectorAll(".msg-flat.them").forEach((el) => {
       const nc = el.dataset.nameColor;
       const tc = el.dataset.textColor;
-      const who = el.querySelector(".who");
-      const bubble = el.querySelector(".bubble");
-      if (bubble) bubble.style.color = !blocked && tc ? tc : "";
-      if (who) {
-        who.style.color = !blocked && nc ? nc : "";
-        who.style.opacity = !blocked && nc ? "1" : "";
-      }
+      const nameEl = el.querySelector(".msg-name");
+      const textEl = el.querySelector(".msg-text");
+      if (nameEl) nameEl.style.color = !blocked && nc ? nc : "";
+      if (textEl) textEl.style.color = !blocked && tc ? tc : "";
     });
   }
   // 自分が設定している色(送信時に相手へ渡す)
@@ -659,50 +653,143 @@
     return mentionsMe;
   }
 
-  function renderMessage(targetBox, { from, name, text, nameColor, textColor, ts }) {
+  // ---------- 既読・リアクション: id ごとの DOM 参照を保持 ----------
+  // 個人/ランダム(chatBox)とグループ(groupChatBox)を跨いでも id は部屋コード付きで一意
+  const messageEls = new Map(); // id -> { row, reactionRow, readEl, mine }
+
+  const EMOJI_SET = ["👍", "😂", "❤️", "😮", "😢", "🎉", "👎", "🙏"];
+
+  function closeAllPickers() {
+    document.querySelectorAll(".emoji-picker").forEach((p) => p.remove());
+    document.querySelectorAll(".msg-flat.picker-open").forEach((r) => r.classList.remove("picker-open"));
+  }
+
+  function openEmojiPicker(row, id) {
+    closeAllPickers();
+    row.classList.add("picker-open");
+    const picker = document.createElement("div");
+    picker.className = "emoji-picker";
+    EMOJI_SET.forEach((em) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = em;
+      b.addEventListener("click", (e) => {
+        e.stopPropagation();
+        socket.emit("toggle_reaction", { id, emoji: em });
+        closeAllPickers();
+      });
+      picker.appendChild(b);
+    });
+    row.appendChild(picker);
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".emoji-picker")) closeAllPickers();
+  });
+
+  // 長押し(スマホ)・マウス長押し(PC)・右クリックで絵文字ピッカーを開く
+  function bindLongPress(row, id) {
+    let timer = null;
+    const start = () => { timer = setTimeout(() => openEmojiPicker(row, id), 420); };
+    const cancel = () => { if (timer) clearTimeout(timer); timer = null; };
+    row.addEventListener("touchstart", start, { passive: true });
+    row.addEventListener("touchend", cancel);
+    row.addEventListener("touchmove", cancel);
+    row.addEventListener("mousedown", start);
+    row.addEventListener("mouseup", cancel);
+    row.addEventListener("mouseleave", cancel);
+    row.addEventListener("contextmenu", (e) => { e.preventDefault(); openEmojiPicker(row, id); });
+  }
+
+  function renderReactions(id, reactions) {
+    const ref = messageEls.get(id);
+    if (!ref) return;
+    ref.reactionRow.innerHTML = "";
+    reactions.forEach(({ emoji, socketIds }) => {
+      if (!socketIds.length) return;
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "reaction-pill" + (socketIds.includes(socket.id) ? " mine" : "");
+      b.textContent = emoji + " " + socketIds.length;
+      b.addEventListener("click", () => socket.emit("toggle_reaction", { id, emoji }));
+      ref.reactionRow.appendChild(b);
+    });
+  }
+  socket.on("reaction_update", ({ id, reactions }) => renderReactions(id, reactions));
+
+  function renderReadReceipt(id, count) {
+    const ref = messageEls.get(id);
+    if (!ref || !ref.mine) return;
+    ref.readEl.textContent = count > 0 ? (count > 1 ? `既読 ${count}` : "既読") : "";
+  }
+  socket.on("read_update", ({ id, count }) => renderReadReceipt(id, count));
+
+  // 相手からのメッセージが画面に表示され、かつタブがアクティブなら既読を送る
+  function maybeMarkRead(id, mine) {
+    if (mine || document.hidden) return;
+    socket.emit("read_message", { id });
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    // 画面復帰時、表示中の未既読メッセージをまとめて既読にする
+    messageEls.forEach((ref, id) => { if (!ref.mine) socket.emit("read_message", { id }); });
+  });
+
+  function renderMessage(targetBox, { id, from, name, text, nameColor, textColor, ts }) {
     const mine = from === socket.id;
     const isGroup = targetBox === groupChatBox;
+
     const row = document.createElement("div");
-    row.className = "msg " + (mine ? "me" : "them");
-    if (!mine) {
-      if (HEX_RE.test(nameColor || "")) row.dataset.nameColor = nameColor;
-      if (HEX_RE.test(textColor || "")) row.dataset.textColor = textColor;
+    row.className = "msg-flat " + (mine ? "mine" : "them");
+    row.dataset.id = id;
+    if (!mine && HEX_RE.test(nameColor || "")) row.dataset.nameColor = nameColor;
+    if (!mine && HEX_RE.test(textColor || "")) row.dataset.textColor = textColor;
 
-      const meta = document.createElement("div");
-      meta.className = "msg-meta";
-      const avatar = document.createElement("span");
-      avatar.className = "avatar-circle";
-      avatar.textContent = (name || "?").trim().slice(0, 1).toUpperCase();
-      const who = document.createElement("span");
-      who.className = "who";
-      who.textContent = name;
-      meta.appendChild(avatar);
-      meta.appendChild(who);
-      row.appendChild(meta);
-    }
+    const avatar = document.createElement("span");
+    avatar.className = "avatar-circle";
+    avatar.textContent = (name || "?").trim().slice(0, 1).toUpperCase();
 
-    const bubbleRow = document.createElement("div");
-    bubbleRow.className = "bubble-row";
-    const bubble = document.createElement("div");
-    bubble.className = "bubble";
-    // textContent を使い、名前・本文に含まれるHTMLを実行させない(XSS対策)
+    const body = document.createElement("div");
+    body.className = "msg-body";
+
+    const head = document.createElement("div");
+    head.className = "msg-head";
+    const nameEl = document.createElement("span");
+    nameEl.className = "msg-name";
+    nameEl.textContent = mine ? "自分" : name;
+    const timeEl = document.createElement("span");
+    timeEl.className = "msg-time";
+    timeEl.textContent = formatTime(ts);
+    head.appendChild(nameEl);
+    head.appendChild(timeEl);
+
+    const textEl = document.createElement("div");
+    textEl.className = "msg-text";
     let mentionsMe = false;
-    if (isGroup) {
-      mentionsMe = renderTextWithMentions(bubble, text);
-    } else {
-      bubble.textContent = text;
-    }
+    if (isGroup) mentionsMe = renderTextWithMentions(textEl, text);
+    else textEl.textContent = text;
     if (mentionsMe) row.classList.add("mention-me");
-    const time = document.createElement("span");
-    time.className = "msg-time";
-    time.textContent = formatTime(ts);
-    if (mine) { bubbleRow.appendChild(time); bubbleRow.appendChild(bubble); }
-    else { bubbleRow.appendChild(bubble); bubbleRow.appendChild(time); }
-    row.appendChild(bubbleRow);
+
+    const reactionRow = document.createElement("div");
+    reactionRow.className = "reaction-row";
+
+    const readEl = document.createElement("div");
+    readEl.className = "read-receipt";
+
+    body.appendChild(head);
+    body.appendChild(textEl);
+    body.appendChild(reactionRow);
+    if (mine) body.appendChild(readEl);
+    row.appendChild(avatar);
+    row.appendChild(body);
 
     targetBox.appendChild(row);
+    messageEls.set(id, { row, reactionRow, readEl, mine });
+    bindLongPress(row, id);
     if (!mine) applyPartnerColors();
     targetBox.scrollTop = targetBox.scrollHeight;
+
+    maybeMarkRead(id, mine);
   }
 
   socket.on("chat_message", (data) => {
@@ -783,10 +870,13 @@
   // 現在のテーマでの標準色(ピッカーの初期表示用)
   function probe() {
     const el = document.createElement('div');
-    el.className = 'msg me';
+    el.className = 'msg-flat mine';
     el.style.cssText = 'position:absolute; visibility:hidden;';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'msg-name';
+    el.appendChild(nameEl);
     document.body.appendChild(el);
-    const c = getComputedStyle(el).color;
+    const c = getComputedStyle(nameEl).color;
     el.remove();
     return toHex(c);
   }
