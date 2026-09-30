@@ -64,6 +64,7 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
 
   if (!room) return;
 
+  const leavingMember = room.members.find((m) => m.socketId === socket.id);
   const remaining = room.members.filter((m) => m.socketId !== socket.id);
 
   if (remaining.length > 0) {
@@ -75,6 +76,7 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
         code,
         limit: room.limit,
         members: remaining.map((m) => ({ name: m.name })),
+        leftName: leavingMember ? leavingMember.name : null,
       });
     }
   } else {
@@ -146,6 +148,7 @@ io.on("connection", (socket) => {
           code: roomCode,
           limit: room.limit,
           members: room.members.map((m) => ({ name: m.name })),
+          joinedName: name,
         });
         console.log(`[group] ${name} が code=${roomCode} に参加(${room.members.length}/${room.limit})`);
       }
