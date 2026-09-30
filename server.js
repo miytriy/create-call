@@ -35,6 +35,15 @@ function sanitizeColor(value) {
   return typeof value === "string" && HEX_COLOR.test(value) ? value : null;
 }
 
+// アイコン画像(data URL)。形式と大きさだけ確認する(中身の画像検証はしない簡易チェック)。
+const MAX_AVATAR_LENGTH = 40000; // 128x128のJPEGなら十分収まるサイズ
+function sanitizeAvatar(value) {
+  if (typeof value !== "string") return null;
+  if (!value.startsWith("data:image/")) return null;
+  if (value.length > MAX_AVATAR_LENGTH) return null;
+  return value;
+}
+
 function normalizeCode(raw) {
   const halfWidth = String(raw || "").replace(/[\uFF01-\uFF5E]/g, (ch) =>
     String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)
@@ -91,7 +100,7 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
       io.to(code).emit("group_update", {
         code,
         limit: room.limit,
-        members: remaining.map((m) => ({ name: m.name })),
+        members: remaining.map((m) => ({ socketId: m.socketId, name: m.name, avatar: m.avatar || null })),
         leftName: leavingMember ? leavingMember.name : null,
       });
     }
@@ -104,12 +113,13 @@ io.on("connection", (socket) => {
   // ---- 個人チャット / グループチャット(部屋コード方式) ----
   socket.on("join_room", (payload) => {
     try {
-      const { displayName, code, mode } =
+      const { displayName, code, mode, avatar } =
         payload && typeof payload === "object" ? payload : {};
 
       const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
       const roomCode = normalizeCode(code);
       const roomType = mode === "group" ? "group" : "personal";
+      const myAvatar = sanitizeAvatar(avatar);
 
       if (!roomCode) {
         socket.emit("join_error", { code: "need_code", message: "部屋コードを入力してください" });
@@ -144,7 +154,7 @@ io.on("connection", (socket) => {
         return;
       }
 
-      room.members.push({ socketId: socket.id, name });
+      room.members.push({ socketId: socket.id, name, avatar: myAvatar });
       socketRoom.set(socket.id, roomCode);
       socket.join(roomCode);
 
@@ -152,8 +162,8 @@ io.on("connection", (socket) => {
         if (room.members.length === 2) {
           const [a, b] = room.members;
           // initiator: 通話のoffer(発信)側。先に入った a が担当
-          io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name, initiator: true });
-          io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name, initiator: false });
+          io.to(a.socketId).emit("matched", { code: roomCode, partnerName: b.name, partnerAvatar: b.avatar, initiator: true });
+          io.to(b.socketId).emit("matched", { code: roomCode, partnerName: a.name, partnerAvatar: a.avatar, initiator: false });
           console.log(`[match] code=${roomCode} ${a.name} <-> ${b.name}`);
         } else {
           socket.emit("waiting", { code: roomCode });
@@ -163,7 +173,7 @@ io.on("connection", (socket) => {
         io.to(roomCode).emit("group_update", {
           code: roomCode,
           limit: room.limit,
-          members: room.members.map((m) => ({ name: m.name })),
+          members: room.members.map((m) => ({ socketId: m.socketId, name: m.name, avatar: m.avatar || null })),
           joinedName: name,
         });
         console.log(`[group] ${name} が code=${roomCode} に参加(${room.members.length}/${room.limit})`);
@@ -177,8 +187,9 @@ io.on("connection", (socket) => {
   // ---- ランダムチャット(コード不要・自動で2人組にする) ----
   socket.on("join_random", (payload) => {
     try {
-      const { displayName } = payload && typeof payload === "object" ? payload : {};
+      const { displayName, avatar } = payload && typeof payload === "object" ? payload : {};
       const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
+      const myAvatar = sanitizeAvatar(avatar);
 
       leaveCurrentRoom(socket, true);
 
@@ -188,7 +199,7 @@ io.on("connection", (socket) => {
 
         if (!partnerSocket) {
           // 相手がすでに切断していた場合は、自分を待機列に入れる
-          randomQueue.push({ socketId: socket.id, name });
+          randomQueue.push({ socketId: socket.id, name, avatar: myAvatar });
           socket.emit("waiting", { code: null });
           return;
         }
@@ -196,8 +207,8 @@ io.on("connection", (socket) => {
         const roomCode = randomRoomCode();
         const room = makeRoom("personal", 2);
         room.members = [
-          { socketId: partner.socketId, name: partner.name },
-          { socketId: socket.id, name },
+          { socketId: partner.socketId, name: partner.name, avatar: partner.avatar || null },
+          { socketId: socket.id, name, avatar: myAvatar },
         ];
         rooms.set(roomCode, room);
         socketRoom.set(partner.socketId, roomCode);
@@ -205,11 +216,11 @@ io.on("connection", (socket) => {
         partnerSocket.join(roomCode);
         socket.join(roomCode);
 
-        io.to(partner.socketId).emit("matched", { code: roomCode, partnerName: name, initiator: true });
-        io.to(socket.id).emit("matched", { code: roomCode, partnerName: partner.name, initiator: false });
+        io.to(partner.socketId).emit("matched", { code: roomCode, partnerName: name, partnerAvatar: myAvatar, initiator: true });
+        io.to(socket.id).emit("matched", { code: roomCode, partnerName: partner.name, partnerAvatar: partner.avatar || null, initiator: false });
         console.log(`[random match] code=${roomCode} ${partner.name} <-> ${name}`);
       } else {
-        randomQueue.push({ socketId: socket.id, name });
+        randomQueue.push({ socketId: socket.id, name, avatar: myAvatar });
         socket.emit("waiting", { code: null });
         console.log(`[random queue] ${name} が待機中`);
       }
