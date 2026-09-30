@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -120,7 +120,9 @@
     width: 34px; height: 34px; border-radius: 50%; flex: none; margin-top: 1px;
     background: #33384a; color: #fff; font-size: 13px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
   }
+  .avatar-circle img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .msg-body { flex: 1; min-width: 0; }
   .msg-head { display: flex; align-items: baseline; gap: 7px; }
   .msg-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -394,6 +396,32 @@
   let myGroupName = null; // グループチャットでの自分の表示名(メンション判定に使用)
   let groupMemberNames = []; // グループチャットの現在の参加者名(メンション候補・ハイライトに使用)
 
+  // ---------- アイコン画像(アバター) ----------
+  // 自分のアイコンは設定パネル(settings.js)が localStorage に保存する。
+  // ここではそれを読み、通話/チャットの相手に送る。
+  function getMyAvatar() {
+    try { return localStorage.getItem("myAvatar") || null; } catch { return null; }
+  }
+  let partnerAvatar = null; // 個人/ランダムチャット(1対1)の相手のアイコン
+  let groupAvatars = new Map(); // グループチャット: socketId -> アイコン(data URL)
+
+  // 設定パネルでアイコンを変更したら、表示中のメッセージにも反映する
+  window.addEventListener("avatarchange", () => {
+    document.querySelectorAll('.msg-flat.mine .avatar-circle').forEach((el) => setAvatarEl(el, getMyAvatar()));
+  });
+
+  function setAvatarEl(el, url, fallbackLetter) {
+    el.innerHTML = "";
+    if (url) {
+      const img = document.createElement("img");
+      img.src = url;
+      img.alt = "";
+      el.appendChild(img);
+    } else {
+      el.textContent = fallbackLetter || "";
+    }
+  }
+
   document.querySelectorAll(".mode-card").forEach((btn) => {
     btn.addEventListener("click", () => {
       currentMode = btn.dataset.mode;
@@ -443,7 +471,7 @@
     const code = normalizeCode(codeInput.value);
     if (!code) { showCodeError("部屋コードを入力してください"); return; }
     showCodeError("");
-    const payload = { displayName, code, mode: currentMode };
+    const payload = { displayName, code, mode: currentMode, avatar: getMyAvatar() };
     if (currentMode === "group") {
       let limit = parseInt(groupLimitInput.value, 10);
       if (!Number.isFinite(limit)) limit = 10;
@@ -466,7 +494,7 @@
   randomJoinBtn.addEventListener("click", () => {
     const displayName = randomNameInput.value.trim() || "名無し";
     showRandomError("");
-    socket.emit("join_random", { displayName });
+    socket.emit("join_random", { displayName, avatar: getMyAvatar() });
   });
 
   // ---------- 待機画面 ----------
@@ -529,8 +557,9 @@
     muteBtn.textContent = muted ? "🔇 ミュート解除" : "🎤 ミュートする";
   });
 
-  socket.on("matched", ({ partnerName, initiator }) => {
+  socket.on("matched", ({ partnerName, partnerAvatar: pa, initiator }) => {
     matchedStatus.textContent = partnerName;
+    partnerAvatar = pa || null;
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
     chatBox.innerHTML = "";
@@ -577,6 +606,7 @@
     const alreadyInRoom = currentMode === "group" && !document.getElementById("groupRoom").classList.contains("hidden");
     currentMode = "group";
     groupMemberNames = members.map((m) => m.name);
+    groupAvatars = new Map(members.map((m) => [m.socketId, m.avatar || null]));
     if (alreadyInRoom) {
       if (joinedName) addSystemMessage(groupChatBox, `👋 ${joinedName} さんが入室しました`);
       if (leftName) addSystemMessage(groupChatBox, `🚪 ${leftName} さんが退出しました`);
@@ -747,7 +777,9 @@
 
     const avatar = document.createElement("span");
     avatar.className = "avatar-circle";
-    avatar.textContent = (name || "?").trim().slice(0, 1).toUpperCase();
+    const letter = (name || "?").trim().slice(0, 1).toUpperCase();
+    const avatarUrl = mine ? getMyAvatar() : (isGroup ? groupAvatars.get(from) : partnerAvatar);
+    setAvatarEl(avatar, avatarUrl, letter);
 
     const body = document.createElement("div");
     body.className = "msg-body";
