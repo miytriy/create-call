@@ -19,7 +19,8 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, "public")));
 
-// code -> { type: 'personal'|'group', limit: number, members: [{ socketId, name }] }
+// code -> { type: 'personal'|'group', limit: number, members: [{ socketId, name }],
+//           msgSeq: number, messages: Map(id -> { reactions: Map(emoji->Set(socketId)), readBy: Set(socketId), authorSocketId }) }
 const rooms = new Map();
 
 // socketId -> 現在参加している部屋コード
@@ -47,6 +48,21 @@ function randomRoomCode() {
 
 function removeFromRandomQueue(socketId) {
   randomQueue = randomQueue.filter((w) => w.socketId !== socketId);
+}
+
+function makeRoom(type, limit) {
+  return { type, limit, members: [], msgSeq: 0, messages: new Map() };
+}
+
+// メッセージの既読・リアクション状態を保持する Map は、部屋あたり最大件数を超えたら
+// 古いものから捨てる(長時間の利用でメモリが際限なく増えるのを防ぐため)
+const MAX_TRACKED_MESSAGES = 300;
+function trackMessage(room, id, authorSocketId) {
+  room.messages.set(id, { reactions: new Map(), readBy: new Set([authorSocketId]), authorSocketId });
+  if (room.messages.size > MAX_TRACKED_MESSAGES) {
+    const oldestKey = room.messages.keys().next().value;
+    room.messages.delete(oldestKey);
+  }
 }
 
 // 現在の部屋から退出させる。group の場合は残ったメンバーに更新を通知する。
@@ -116,7 +132,7 @@ io.on("connection", (socket) => {
           const parsed = parseInt(payload && payload.limit, 10);
           limit = Number.isFinite(parsed) ? Math.min(20, Math.max(2, parsed)) : 10;
         }
-        room = { type: roomType, limit, members: [] };
+        room = makeRoom(roomType, limit);
         rooms.set(roomCode, room);
       }
 
@@ -178,14 +194,11 @@ io.on("connection", (socket) => {
         }
 
         const roomCode = randomRoomCode();
-        const room = {
-          type: "personal",
-          limit: 2,
-          members: [
-            { socketId: partner.socketId, name: partner.name },
-            { socketId: socket.id, name },
-          ],
-        };
+        const room = makeRoom("personal", 2);
+        room.members = [
+          { socketId: partner.socketId, name: partner.name },
+          { socketId: socket.id, name },
+        ];
         rooms.set(roomCode, room);
         socketRoom.set(partner.socketId, roomCode);
         socketRoom.set(socket.id, roomCode);
@@ -220,7 +233,11 @@ io.on("connection", (socket) => {
       const me = room.members.find((m) => m.socketId === socket.id);
       if (!me) return;
 
+      const id = `${code}-${++room.msgSeq}`;
+      trackMessage(room, id, socket.id);
+
       io.to(code).emit("chat_message", {
+        id,
         from: socket.id,
         name: me.name,
         text: trimmed.slice(0, 1000),
@@ -231,6 +248,55 @@ io.on("connection", (socket) => {
       });
     } catch (err) {
       console.error("[send_message error]", err);
+    }
+  });
+
+  // ---- 既読 ----
+  socket.on("read_message", (payload) => {
+    try {
+      const id = payload && payload.id;
+      if (typeof id !== "string") return;
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const room = rooms.get(code);
+      if (!room) return;
+      const entry = room.messages.get(id);
+      // 自分自身のメッセージや、既に既読済みなら何もしない
+      if (!entry || entry.authorSocketId === socket.id || entry.readBy.has(socket.id)) return;
+      entry.readBy.add(socket.id);
+      const count = entry.readBy.size - 1; // 送信者本人は数えない
+      io.to(code).emit("read_update", { id, count });
+    } catch (err) {
+      console.error("[read_message error]", err);
+    }
+  });
+
+  // ---- リアクション(絵文字) ----
+  socket.on("toggle_reaction", (payload) => {
+    try {
+      const id = payload && payload.id;
+      const emoji = payload && payload.emoji;
+      if (typeof id !== "string" || typeof emoji !== "string") return;
+      const clean = emoji.trim().slice(0, 8);
+      if (!clean) return;
+
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const room = rooms.get(code);
+      if (!room) return;
+      const entry = room.messages.get(id);
+      if (!entry) return;
+
+      let set = entry.reactions.get(clean);
+      if (!set) { set = new Set(); entry.reactions.set(clean, set); }
+      if (set.has(socket.id)) set.delete(socket.id);
+      else set.add(socket.id);
+      if (set.size === 0) entry.reactions.delete(clean);
+
+      const reactions = [...entry.reactions.entries()].map(([e, s]) => ({ emoji: e, socketIds: [...s] }));
+      io.to(code).emit("reaction_update", { id, reactions });
+    } catch (err) {
+      console.error("[toggle_reaction error]", err);
     }
   });
 
