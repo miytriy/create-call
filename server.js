@@ -26,8 +26,40 @@ const rooms = new Map();
 // socketId -> 現在参加している部屋コード
 const socketRoom = new Map();
 
-// ランダムチャットの待機列: [{ socketId, name }, ...]
+// ランダムチャットの待機列: [{ socketId, name, clientId }, ...]
 let randomQueue = [];
+
+// 通報によるブロック: clientId -> Set(ブロックしたclientId)
+// clientId はブラウザごとに割り振る簡易的な識別子で、アカウントとは無関係(サインイン不要)。
+// ランダムチャットの相手選びの際、お互いにブロック関係があれば組ませない。
+const blocks = new Map();
+function isBlockedPair(a, b) {
+  if (!a || !b) return false;
+  return (blocks.get(a) && blocks.get(a).has(b)) || (blocks.get(b) && blocks.get(b).has(a));
+}
+
+// 履歴として見せる範囲(直近1日)
+const HISTORY_WINDOW_MS = 24 * 60 * 60 * 1000;
+function buildHistory(room) {
+  const now = Date.now();
+  const list = [];
+  for (const [id, m] of room.messages) {
+    if (now - m.ts > HISTORY_WINDOW_MS) continue;
+    list.push({
+      id,
+      from: m.authorSocketId,
+      name: m.name,
+      text: m.text,
+      nameColor: m.nameColor,
+      textColor: m.textColor,
+      replyTo: m.replyTo,
+      ts: m.ts,
+      edited: !!m.edited,
+      reactions: [...m.reactions.entries()].map(([e, s]) => ({ emoji: e, socketIds: [...s] })),
+    });
+  }
+  return list;
+}
 
 // チャットの色として許可する形式(#rrggbb)
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -66,8 +98,20 @@ function makeRoom(type, limit) {
 // メッセージの既読・リアクション状態を保持する Map は、部屋あたり最大件数を超えたら
 // 古いものから捨てる(長時間の利用でメモリが際限なく増えるのを防ぐため)
 const MAX_TRACKED_MESSAGES = 300;
-function trackMessage(room, id, authorSocketId) {
-  room.messages.set(id, { reactions: new Map(), readBy: new Set([authorSocketId]), authorSocketId });
+function trackMessage(room, id, fields) {
+  room.messages.set(id, {
+    reactions: new Map(),
+    readBy: new Set([fields.authorSocketId]),
+    authorSocketId: fields.authorSocketId,
+    authorClientId: fields.authorClientId || null,
+    name: fields.name,
+    text: fields.text,
+    nameColor: fields.nameColor,
+    textColor: fields.textColor,
+    replyTo: fields.replyTo,
+    ts: Date.now(),
+    edited: false,
+  });
   if (room.messages.size > MAX_TRACKED_MESSAGES) {
     const oldestKey = room.messages.keys().next().value;
     room.messages.delete(oldestKey);
@@ -113,13 +157,14 @@ io.on("connection", (socket) => {
   // ---- 個人チャット / グループチャット(部屋コード方式) ----
   socket.on("join_room", (payload) => {
     try {
-      const { displayName, code, mode, avatar } =
+      const { displayName, code, mode, avatar, clientId } =
         payload && typeof payload === "object" ? payload : {};
 
       const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
       const roomCode = normalizeCode(code);
       const roomType = mode === "group" ? "group" : "personal";
       const myAvatar = sanitizeAvatar(avatar);
+      const myClientId = typeof clientId === "string" ? clientId.slice(0, 64) : null;
 
       if (!roomCode) {
         socket.emit("join_error", { code: "need_code", message: "部屋コードを入力してください" });
@@ -154,9 +199,12 @@ io.on("connection", (socket) => {
         return;
       }
 
-      room.members.push({ socketId: socket.id, name, avatar: myAvatar });
+      room.members.push({ socketId: socket.id, name, avatar: myAvatar, clientId: myClientId });
       socketRoom.set(socket.id, roomCode);
       socket.join(roomCode);
+
+      // 直近1日の履歴を、入室した本人にだけ送る
+      socket.emit("chat_history", { messages: buildHistory(room) });
 
       if (roomType === "personal") {
         if (room.members.length === 2) {
@@ -187,32 +235,37 @@ io.on("connection", (socket) => {
   // ---- ランダムチャット(コード不要・自動で2人組にする) ----
   socket.on("join_random", (payload) => {
     try {
-      const { displayName, avatar } = payload && typeof payload === "object" ? payload : {};
+      const { displayName, avatar, clientId } = payload && typeof payload === "object" ? payload : {};
       const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
       const myAvatar = sanitizeAvatar(avatar);
+      const myClientId = typeof clientId === "string" ? clientId.slice(0, 64) : null;
 
       leaveCurrentRoom(socket, true);
 
-      if (randomQueue.length > 0) {
-        const partner = randomQueue.shift();
-        const partnerSocket = io.sockets.sockets.get(partner.socketId);
+      // 待機列から、ブロック関係にない相手を探す(つながっていない/古い相手はその場で取り除く)
+      let partner = null;
+      while (randomQueue.length > 0) {
+        const idx = randomQueue.findIndex((w) => !isBlockedPair(myClientId, w.clientId));
+        if (idx === -1) break; // 残りは全員ブロック関係 → 自分は待機列へ
+        const candidate = randomQueue[idx];
+        const candidateSocket = io.sockets.sockets.get(candidate.socketId);
+        if (!candidateSocket) { randomQueue.splice(idx, 1); continue; } // すでに切断済み
+        randomQueue.splice(idx, 1);
+        partner = candidate;
+        break;
+      }
 
-        if (!partnerSocket) {
-          // 相手がすでに切断していた場合は、自分を待機列に入れる
-          randomQueue.push({ socketId: socket.id, name, avatar: myAvatar });
-          socket.emit("waiting", { code: null });
-          return;
-        }
-
+      if (partner) {
         const roomCode = randomRoomCode();
         const room = makeRoom("personal", 2);
         room.members = [
-          { socketId: partner.socketId, name: partner.name, avatar: partner.avatar || null },
-          { socketId: socket.id, name, avatar: myAvatar },
+          { socketId: partner.socketId, name: partner.name, avatar: partner.avatar || null, clientId: partner.clientId || null },
+          { socketId: socket.id, name, avatar: myAvatar, clientId: myClientId },
         ];
         rooms.set(roomCode, room);
         socketRoom.set(partner.socketId, roomCode);
         socketRoom.set(socket.id, roomCode);
+        const partnerSocket = io.sockets.sockets.get(partner.socketId);
         partnerSocket.join(roomCode);
         socket.join(roomCode);
 
@@ -220,7 +273,7 @@ io.on("connection", (socket) => {
         io.to(socket.id).emit("matched", { code: roomCode, partnerName: partner.name, partnerAvatar: partner.avatar || null, initiator: false });
         console.log(`[random match] code=${roomCode} ${partner.name} <-> ${name}`);
       } else {
-        randomQueue.push({ socketId: socket.id, name, avatar: myAvatar });
+        randomQueue.push({ socketId: socket.id, name, avatar: myAvatar, clientId: myClientId });
         socket.emit("waiting", { code: null });
         console.log(`[random queue] ${name} が待機中`);
       }
@@ -244,21 +297,67 @@ io.on("connection", (socket) => {
       const me = room.members.find((m) => m.socketId === socket.id);
       if (!me) return;
 
+      // 返信先(あれば): id・名前・本文の抜粋だけを軽く検証して載せる
+      let replyTo = null;
+      const rt = payload.replyTo;
+      if (rt && typeof rt === "object" && typeof rt.id === "string") {
+        replyTo = {
+          id: rt.id,
+          name: String(rt.name || "").slice(0, 20),
+          text: String(rt.text || "").slice(0, 120),
+        };
+      }
+
       const id = `${code}-${++room.msgSeq}`;
-      trackMessage(room, id, socket.id);
+      const finalText = trimmed.slice(0, 1000);
+      const nameColor = sanitizeColor(payload.nameColor);
+      const textColor = sanitizeColor(payload.textColor);
+
+      trackMessage(room, id, {
+        authorSocketId: socket.id,
+        authorClientId: me.clientId || null,
+        name: me.name,
+        text: finalText,
+        nameColor,
+        textColor,
+        replyTo,
+      });
 
       io.to(code).emit("chat_message", {
         id,
         from: socket.id,
         name: me.name,
-        text: trimmed.slice(0, 1000),
-        // 色は #rrggbb の形式だけ通す(それ以外は null)
-        nameColor: sanitizeColor(payload.nameColor),
-        textColor: sanitizeColor(payload.textColor),
+        text: finalText,
+        nameColor,
+        textColor,
+        replyTo,
         ts: Date.now(),
       });
     } catch (err) {
       console.error("[send_message error]", err);
+    }
+  });
+
+  // ---- メッセージの編集(自分が送ったものだけ) ----
+  socket.on("edit_message", (payload) => {
+    try {
+      const id = payload && payload.id;
+      const text = payload && typeof payload.text === "string" ? payload.text.trim().slice(0, 1000) : "";
+      if (typeof id !== "string" || !text) return;
+
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const room = rooms.get(code);
+      if (!room) return;
+      const entry = room.messages.get(id);
+      if (!entry || entry.authorSocketId !== socket.id) return;
+
+      entry.text = text;
+      entry.edited = true;
+
+      io.to(code).emit("message_edited", { id, text });
+    } catch (err) {
+      console.error("[edit_message error]", err);
     }
   });
 
@@ -308,6 +407,60 @@ io.on("connection", (socket) => {
       io.to(code).emit("reaction_update", { id, reactions });
     } catch (err) {
       console.error("[toggle_reaction error]", err);
+    }
+  });
+
+  // ---- 通報(ログに記録し、通報した相手を自動でブロックする) ----
+  // 悪意のある通報も起こり得るため、相手を強制退出させたりはしない。
+  // ブロックは「今後のランダムチャットの組み合わせから外れる」効果のみ。
+  socket.on("report_message", (payload) => {
+    try {
+      const id = payload && payload.id;
+      if (typeof id !== "string") return;
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const room = rooms.get(code);
+      if (!room) return;
+      const entry = room.messages.get(id);
+      if (!entry) return;
+      const reporter = room.members.find((m) => m.socketId === socket.id);
+      if (!reporter) return;
+
+      const reporterClientId = reporter.clientId || null;
+      const reportedClientId = entry.authorClientId || null;
+
+      console.warn("[REPORT]", {
+        time: new Date().toISOString(),
+        room: code,
+        reporterName: reporter.name,
+        reporterClientId,
+        reportedName: entry.name,
+        reportedClientId,
+        messageId: id,
+        messageText: entry.text,
+      });
+
+      if (reporterClientId && reportedClientId) {
+        if (!blocks.has(reporterClientId)) blocks.set(reporterClientId, new Set());
+        blocks.get(reporterClientId).add(reportedClientId);
+      }
+    } catch (err) {
+      console.error("[report_message error]", err);
+    }
+  });
+
+  // ---- 入力中の表示(本文は送らず、誰が入力中かだけを相手に伝える) ----
+  socket.on("typing", () => {
+    try {
+      const code = socketRoom.get(socket.id);
+      if (!code) return;
+      const room = rooms.get(code);
+      if (!room) return;
+      const me = room.members.find((m) => m.socketId === socket.id);
+      if (!me) return;
+      socket.to(code).emit("typing", { name: me.name });
+    } catch (err) {
+      console.error("[typing error]", err);
     }
   });
 
