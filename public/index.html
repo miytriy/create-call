@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -45,6 +45,11 @@
     font-size: 14px;
   }
   input.code { font-family: monospace; letter-spacing: 0.2em; }
+  select {
+    width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #33384a;
+    background: #0f111a; color: #fff; margin-bottom: 12px; font-size: 14px;
+  }
+  [data-theme="light"] select { background: #f7f6f2; color: #1d1f27; border-color: #d4d2c8; }
   .hint { font-size: 11px; color: #5f6473; margin: -8px 0 12px; }
   button {
     width: 100%;
@@ -202,6 +207,26 @@
   .reply-preview button { width: auto; margin: 0; padding: 2px 8px; background: none; color: inherit; font-size: 14px; }
   [data-theme="light"] .reply-preview { background: #efeee8; border-color: #d4d2c8; }
   [data-theme="light"] .reply-preview .rp-text { color: #3a3d48; }
+  /* --- オープンチャット: タグ選択・部屋一覧 --- */
+  .tag-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .tag-chip {
+    width: auto; margin: 0; padding: 6px 14px; font-size: 12.5px; border-radius: 999px;
+    background: #20242f; border: 1px solid #33384a; color: #c7cad3;
+  }
+  .tag-chip.on { background: #e0a840; color: #1a1206; border-color: #e0a840; }
+  [data-theme="light"] .tag-chip { background: #efeee8; border-color: #d4d2c8; color: #3a3d48; }
+  .open-room-card {
+    width: 100%; text-align: left; padding: 12px 14px; border-radius: 14px;
+    background: #20242f; border: 1px solid #33384a; color: inherit; cursor: pointer; margin-bottom: 10px;
+  }
+  .open-room-card .or-title { font-weight: 700; font-size: 14.5px; display: flex; align-items: center; gap: 6px; }
+  .open-room-card .or-meta { font-size: 11.5px; color: #8a8f9e; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .open-room-card .or-tag {
+    padding: 2px 9px; border-radius: 999px; background: rgba(255,255,255,.06); font-size: 11px;
+  }
+  [data-theme="light"] .open-room-card { background: #fff; border-color: #dcdad2; }
+  [data-theme="light"] .open-room-card .or-meta { color: #6b6f7c; }
+  [data-theme="light"] .open-room-card .or-tag { background: rgba(0,0,0,.05); }
   /* --- 入力中インジケーター --- */
   .typing-indicator { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: #8a8f9e; margin: -2px 0 6px; }
   .typing-indicator.hidden { display: none; }
@@ -288,6 +313,13 @@
         <span class="mc-desc">コード不要。待機中の誰かと自動でマッチングし、音声通話+チャット</span>
       </span>
     </button>
+    <button class="mode-card" data-mode="open">
+      <span class="mc-icon">🏠</span>
+      <span>
+        <span class="mc-title">オープンチャット</span><br>
+        <span class="mc-desc">公開中の部屋一覧から参加、または自分で部屋を作ってテキストチャット</span>
+      </span>
+    </button>
   </div>
 
   <!-- ② 個人/グループ:コード入力 -->
@@ -367,7 +399,49 @@
     </div>
   </div>
 
-  <!-- ⑥ グループチャット中(テキストのみ) -->
+  <!-- ⑤.5 オープンチャット:公開部屋一覧 -->
+  <div id="openList" class="hidden">
+    <button class="back-link" data-back="1">← 戻る</button>
+
+    <label>表示名</label>
+    <input id="openListNameInput" placeholder="例: ABC" maxlength="20" />
+
+    <button id="openCreateBtn">＋ 新しい部屋を作る</button>
+    <p class="hint" id="openListHint" style="text-align:center;">読み込み中…</p>
+    <div id="openRoomList"></div>
+  </div>
+
+  <!-- ⑤.6 オープンチャット:部屋作成 -->
+  <div id="openCreate" class="hidden">
+    <button class="back-link" data-back-open="1">← 一覧に戻る</button>
+
+    <label>表示名</label>
+    <input id="openNameInput" placeholder="例: ABC" maxlength="20" />
+
+    <label>部屋名</label>
+    <input id="openTitleInput" placeholder="例: 雑談しましょう" maxlength="30" />
+
+    <label>タグ(最大3つ)</label>
+    <div class="tag-picker" id="openTagPicker"></div>
+
+    <label class="sw"><input type="checkbox" id="openLockedToggle">招待コードが必要な部屋にする(鍵マーク付き)</label>
+    <p class="hint" style="margin-top:-8px;">オンにすると、作成後に招待コードが表示されます。コードを知っている人だけが参加できます</p>
+
+    <label>参加できる人</label>
+    <select id="openRestrictionSel">
+      <option value="none">制限なし(誰でも参加可)</option>
+      <option value="account">アカウントをお持ちの方のみ</option>
+      <option value="verified">認証済み(Googleアカウント)の方のみ</option>
+    </select>
+
+    <label>人数上限(2〜50人)</label>
+    <input id="openLimitInput" type="number" min="2" max="50" value="10" />
+
+    <p class="error hidden" id="openCreateError"></p>
+    <button id="openCreateSubmitBtn">この内容で部屋を作る</button>
+  </div>
+
+  <!-- ⑥ グループチャット中(テキストのみ・オープンチャットもここを共用) -->
   <div id="groupRoom" class="hidden">
     <p class="status" id="groupStatus"></p>
     <p class="member-list" id="groupMembers"></p>
@@ -467,7 +541,8 @@
   const myClientId = getClientId();
 
   // ---------- 画面切り替え ----------
-  const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom"];
+  const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom", "openList", "openCreate"];
+  const OPEN_TAGS = ["雑談", "ゲーム", "音楽", "勉強", "その他"];
   const mainTitle = document.getElementById("mainTitle");
   function showScreen(name, title) {
     SCREENS.forEach((id) => document.getElementById(id).classList.toggle("hidden", id !== name));
@@ -532,6 +607,9 @@
       document.getElementById("randomError").classList.add("hidden");
       if (currentMode === "random") {
         showScreen("randomSetup", "🎲 ランダムチャット");
+      } else if (currentMode === "open") {
+        showScreen("openList", "🏠 オープンチャット");
+        refreshOpenRoomList();
       } else {
         document.getElementById("personalOptions").classList.toggle("hidden", currentMode !== "personal");
         document.getElementById("groupOptions").classList.toggle("hidden", currentMode !== "group");
@@ -542,6 +620,12 @@
 
   document.querySelectorAll("[data-back]").forEach((btn) => {
     btn.addEventListener("click", () => showScreen("modeSelect", "💬 チャットを選ぶ"));
+  });
+  document.querySelectorAll("[data-back-open]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      showScreen("openList", "🏠 オープンチャット");
+      refreshOpenRoomList();
+    });
   });
 
   // ---------- 個人/グループ:コード入室 ----------
@@ -628,6 +712,7 @@
 
   socket.on("join_error", ({ message }) => {
     if (currentMode === "random") showRandomError(message);
+    else if (currentMode === "open") alert(message);
     else showCodeError(message);
   });
 
@@ -713,12 +798,16 @@
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
     groupTyping.clear();
+    currentOpenRoomTitle = null;
     showScreen("modeSelect", "💬 チャットを選ぶ");
   });
+
+  let currentOpenRoomTitle = null; // オープンチャットとして入っている場合、その部屋名(ヘッダー表示用)
 
   socket.on("group_update", ({ code, members, limit, joinedName, leftName }) => {
     // 自分がまだ入室画面を見ていない(=これが自分自身の入室)場合は、入室メッセージを出さない
     const alreadyInRoom = currentMode === "group" && !document.getElementById("groupRoom").classList.contains("hidden");
+    const wasOpen = currentMode === "open";
     currentMode = "group";
     groupMemberNames = members.map((m) => m.name);
     groupAvatars = new Map(members.map((m) => [m.socketId, m.avatar || null]));
@@ -727,9 +816,175 @@
       if (joinedName) addSystemMessage(groupChatBox, `👋 ${joinedName} さんが入室しました`);
       if (leftName) addSystemMessage(groupChatBox, `🚪 ${leftName} さんが退出しました`);
     }
-    groupStatus.textContent = `👥 グループチャット(${members.length}/${limit}人) コード: ${code}`;
+    const label = currentOpenRoomTitle ? `🏠 ${currentOpenRoomTitle}` : "👥 グループチャット";
+    groupStatus.textContent = `${label}(${members.length}/${limit}人) コード: ${code}`;
     groupMembers.textContent = "参加者: " + members.map((m) => m.name).join("、");
-    showScreen("groupRoom", "👥 グループチャット");
+    showScreen("groupRoom", label);
+  });
+
+  // ---------- オープンチャット(公開ロビー) ----------
+  const openListNameInput = document.getElementById("openListNameInput");
+  const openCreateBtn = document.getElementById("openCreateBtn");
+  const openListHint = document.getElementById("openListHint");
+  const openRoomList = document.getElementById("openRoomList");
+  const openNameInput = document.getElementById("openNameInput");
+  const openTitleInput = document.getElementById("openTitleInput");
+  const openTagPicker = document.getElementById("openTagPicker");
+  const openLockedToggle = document.getElementById("openLockedToggle");
+  const openRestrictionSel = document.getElementById("openRestrictionSel");
+  const openLimitInput = document.getElementById("openLimitInput");
+  const openCreateError = document.getElementById("openCreateError");
+  const openCreateSubmitBtn = document.getElementById("openCreateSubmitBtn");
+
+  // 表示名は3つの入口(一覧・作成・前回値)で使い回す
+  function getOpenName() {
+    try { return localStorage.getItem("openDisplayName") || ""; } catch { return ""; }
+  }
+  function setOpenName(v) {
+    try { localStorage.setItem("openDisplayName", v); } catch {}
+  }
+  [openListNameInput, openNameInput].forEach((el) => {
+    el.value = getOpenName();
+    el.addEventListener("change", () => setOpenName(el.value.trim()));
+  });
+
+  let selectedTags = [];
+  function renderTagPicker() {
+    openTagPicker.innerHTML = "";
+    OPEN_TAGS.forEach((tag) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "tag-chip" + (selectedTags.includes(tag) ? " on" : "");
+      b.textContent = tag;
+      b.addEventListener("click", () => {
+        if (selectedTags.includes(tag)) {
+          selectedTags = selectedTags.filter((t) => t !== tag);
+        } else if (selectedTags.length < 3) {
+          selectedTags = [...selectedTags, tag];
+        }
+        renderTagPicker();
+      });
+      openTagPicker.appendChild(b);
+    });
+  }
+
+  function restrictionLabel(r) {
+    return r === "account" ? "🔒 アカウント限定" : r === "verified" ? "🔒 認証済み限定" : null;
+  }
+
+  // 参加制限のチェック(クライアント側のみの簡易ゲート。詳しくは会話内の説明の通り)
+  function canEnterRestrictedRoom(restriction) {
+    const au = window.authUser || { signedIn: false, verified: false };
+    if (restriction === "account" && !au.signedIn) {
+      alert("この部屋はアカウントをお持ちの方のみ参加できます。右上の設定からサインインしてください。");
+      return false;
+    }
+    if (restriction === "verified" && !au.verified) {
+      alert("この部屋は認証済み(Googleアカウント)の方のみ参加できます。右上の設定からGoogleでサインインしてください。");
+      return false;
+    }
+    return true;
+  }
+
+  function refreshOpenRoomList() {
+    openListHint.textContent = "読み込み中…";
+    openRoomList.innerHTML = "";
+    socket.emit("list_open_rooms");
+  }
+
+  socket.on("open_rooms_list", ({ rooms }) => {
+    openRoomList.innerHTML = "";
+    if (!rooms.length) {
+      openListHint.textContent = "今は公開中の部屋がありません。最初の部屋を作ってみましょう";
+      return;
+    }
+    openListHint.textContent = "";
+    rooms.forEach((r) => {
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "open-room-card";
+
+      const title = document.createElement("div");
+      title.className = "or-title";
+      title.textContent = (r.locked ? "🔑 " : "") + r.title;
+      card.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "or-meta";
+      const count = document.createElement("span");
+      count.textContent = `${r.memberCount}/${r.limit}人`;
+      meta.appendChild(count);
+      r.tags.forEach((t) => {
+        const tag = document.createElement("span");
+        tag.className = "or-tag";
+        tag.textContent = t;
+        meta.appendChild(tag);
+      });
+      const rl = restrictionLabel(r.memberRestriction);
+      if (rl) {
+        const rEl = document.createElement("span");
+        rEl.textContent = rl;
+        meta.appendChild(rEl);
+      }
+      card.appendChild(meta);
+
+      card.addEventListener("click", () => {
+        if (!canEnterRestrictedRoom(r.memberRestriction)) return;
+        const displayName = (openListNameInput.value.trim() || "名無し");
+        setOpenName(displayName);
+        let inviteCode = "";
+        if (r.locked) {
+          inviteCode = prompt(`「${r.title}」は招待コードが必要です。コードを入力してください。`) || "";
+          if (!inviteCode.trim()) return;
+        }
+        resetChatUiBeforeJoin();
+        socket.emit("join_open_room", {
+          displayName, code: r.code, inviteCode: inviteCode.trim(),
+          avatar: getMyAvatar(), clientId: myClientId,
+        });
+      });
+
+      openRoomList.appendChild(card);
+    });
+  });
+
+  openCreateBtn.addEventListener("click", () => {
+    openNameInput.value = openListNameInput.value || getOpenName();
+    openTitleInput.value = "";
+    selectedTags = [];
+    renderTagPicker();
+    openLockedToggle.checked = false;
+    openRestrictionSel.value = "none";
+    openLimitInput.value = 10;
+    openCreateError.classList.add("hidden");
+    showScreen("openCreate", "🏠 部屋を作る");
+  });
+
+  openCreateSubmitBtn.addEventListener("click", () => {
+    const displayName = openNameInput.value.trim() || "名無し";
+    setOpenName(displayName);
+    let limit = parseInt(openLimitInput.value, 10);
+    if (!Number.isFinite(limit)) limit = 10;
+    limit = Math.min(50, Math.max(2, limit));
+
+    resetChatUiBeforeJoin();
+    socket.emit("create_open_room", {
+      displayName,
+      title: openTitleInput.value.trim(),
+      tags: selectedTags,
+      locked: openLockedToggle.checked,
+      memberRestriction: openRestrictionSel.value,
+      limit,
+      avatar: getMyAvatar(),
+      clientId: myClientId,
+    });
+  });
+
+  socket.on("open_room_created", ({ title, inviteCode }) => {
+    currentOpenRoomTitle = title;
+    if (inviteCode) {
+      alert(`部屋「${title}」を作成しました。\n\n招待コード: ${inviteCode}\n\nこのコードを知っている人だけが参加できます。参加してほしい人に共有してください。`);
+    }
   });
 
   // ---------- チャット共通処理 ----------
@@ -1168,7 +1423,9 @@
   // 入室直後に届く、直近1日分の履歴をまとめて描画する
   socket.on("chat_history", ({ messages }) => {
     if (!Array.isArray(messages) || !messages.length) return;
-    const targetBox = currentMode === "group" ? groupChatBox : chatBox;
+    // オープンチャットは、group_update が届く前にこのイベントが先着するため
+    // currentMode がまだ "open" のままのことがある → group と同じ箱に出す
+    const targetBox = (currentMode === "group" || currentMode === "open") ? groupChatBox : chatBox;
     messages.forEach((m) => {
       renderMessage(targetBox, m);
       if (m.reactions && m.reactions.length) renderReactions(m.id, m.reactions);
