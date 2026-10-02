@@ -7,6 +7,9 @@
     authDomain: "new-world-ae4c0.firebaseapp.com",
     projectId: "new-world-ae4c0",
   };
+  // オープンチャットの参加制限判定用。Firebase読み込み前/未設定時のデフォルト。
+  window.authUser = window.authUser || { signedIn: false, verified: false };
+
   const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
   const configured = !FIREBASE_CONFIG.apiKey.startsWith("YOUR_");
 
@@ -444,6 +447,13 @@
     m.onAuthStateChanged(auth, (user) => {
       renderAccount(user);
       if (user) syncAvatarFromCloud(user);
+      // オープンチャットの参加制限(アカウント保持者のみ等)の判定に使う。
+      // 「認証済み」は Google サインインの人だけに限定する(メールアドレスは捨て垢で
+      // いくらでも作れてしまい、本人確認としての意味がほぼ無いため)。
+      window.authUser = user
+        ? { signedIn: true, verified: user.providerData.some((p) => p.providerId === "google.com") }
+        : { signedIn: false, verified: false };
+      window.dispatchEvent(new CustomEvent("authchange"));
     });
 
     // メール確認の完了を自動で検出する
