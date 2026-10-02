@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -113,7 +113,11 @@
   .chat-box-tall { height: 320px; }
   .system-msg { text-align: center; font-size: 11px; color: #8a8f9e; margin: 4px 0 12px; }
   /* --- メッセージ(フラット表示: アイコン + 名前/時刻 + 本文) --- */
-  .msg-flat { display: flex; gap: 10px; padding: 6px 4px; border-radius: 10px; position: relative; }
+  .msg-flat {
+    display: flex; gap: 10px; padding: 6px 4px; border-radius: 10px; position: relative;
+    /* 長押しで、独自メニューより先にブラウザ標準の選択/コピー吹き出しが出るのを防ぐ */
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
   .avatar-circle {
     width: 34px; height: 34px; border-radius: 50%; flex: none; margin-top: 1px;
     background: #33384a; color: #fff; font-size: 13px; font-weight: 700;
@@ -164,6 +168,7 @@
     width: 100%; min-height: 60px; padding: 8px 10px; border-radius: 10px;
     border: 1px solid #33384a; background: #0f111a; color: #fff; font-size: 14px;
     font-family: inherit; margin-bottom: 6px; resize: vertical;
+    -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
   }
   .edit-actions { display: flex; gap: 8px; }
   .edit-actions button { width: auto; margin: 0; padding: 6px 14px; font-size: 12px; }
