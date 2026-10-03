@@ -804,11 +804,12 @@
 
   let currentOpenRoomTitle = null; // オープンチャットとして入っている場合、その部屋名(ヘッダー表示用)
 
-  socket.on("group_update", ({ code, members, limit, joinedName, leftName }) => {
+  socket.on("group_update", ({ code, members, limit, joinedName, leftName, roomTitle }) => {
     // 自分がまだ入室画面を見ていない(=これが自分自身の入室)場合は、入室メッセージを出さない
     const alreadyInRoom = currentMode === "group" && !document.getElementById("groupRoom").classList.contains("hidden");
     const wasOpen = currentMode === "open";
     currentMode = "group";
+    if (roomTitle) currentOpenRoomTitle = roomTitle; // オープンチャットの部屋名(作成者・参加者どちらにも届く)
     groupMemberNames = members.map((m) => m.name);
     groupAvatars = new Map(members.map((m) => [m.socketId, m.avatar || null]));
     groupNamesById = new Map(members.map((m) => [m.socketId, m.name]));
