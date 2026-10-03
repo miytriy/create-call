@@ -87,6 +87,40 @@ function randomRoomCode() {
   return "R" + Math.random().toString(36).slice(2, 8).toUpperCase();
 }
 
+// オープンチャット用の部屋コード(他の部屋と衝突しないことを確認してから使う)
+function uniqueOpenRoomCode() {
+  let code;
+  do {
+    code = "O" + Math.random().toString(36).slice(2, 8).toUpperCase();
+  } while (rooms.has(code));
+  return code;
+}
+
+// オープンチャット: 鍵付きの部屋に設定する招待コード(6桁の英数字)
+function genInviteCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 紛らわしい 0/O, 1/I は除外
+  let s = "";
+  for (let i = 0; i < 6; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+// オープンチャットで選べるタグ(サーバー側でもホワイトリストとして検証する)
+const OPEN_TAGS = ["雑談", "ゲーム", "音楽", "勉強", "その他"];
+function sanitizeOpenTags(tags) {
+  if (!Array.isArray(tags)) return [];
+  const out = [];
+  for (const t of tags) {
+    if (typeof t === "string" && OPEN_TAGS.includes(t) && !out.includes(t)) out.push(t);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+const OPEN_RESTRICTIONS = ["none", "account", "verified"];
+function sanitizeRestriction(v) {
+  return OPEN_RESTRICTIONS.includes(v) ? v : "none";
+}
+
 function removeFromRandomQueue(socketId) {
   randomQueue = randomQueue.filter((w) => w.socketId !== socketId);
 }
@@ -146,6 +180,7 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
         limit: room.limit,
         members: remaining.map((m) => ({ socketId: m.socketId, name: m.name, avatar: m.avatar || null })),
         leftName: leavingMember ? leavingMember.name : null,
+        roomTitle: room.isOpen ? room.title : null,
       });
     }
   } else {
@@ -178,6 +213,14 @@ io.on("connection", (socket) => {
 
       if (room && room.type !== roomType) {
         socket.emit("join_error", { code: "wrong_type", message: "このコードは別の種類のチャットで使用されています" });
+        return;
+      }
+
+      if (room && room.isOpen) {
+        socket.emit("join_error", {
+          code: "wrong_type",
+          message: "このコードはオープンチャットの部屋です。オープンチャット一覧から参加してください",
+        });
         return;
       }
 
@@ -228,6 +271,134 @@ io.on("connection", (socket) => {
       }
     } catch (err) {
       console.error("[join_room error]", err);
+      socket.emit("join_error", { message: "参加中にエラーが発生しました" });
+    }
+  });
+
+  // ---- オープンチャット: 公開中の部屋一覧 ----
+  socket.on("list_open_rooms", () => {
+    try {
+      const list = [];
+      for (const [code, room] of rooms) {
+        if (!room.isOpen) continue;
+        list.push({
+          code,
+          title: room.title,
+          tags: room.tags,
+          locked: room.locked,
+          memberRestriction: room.memberRestriction,
+          limit: room.limit,
+          memberCount: room.members.length,
+        });
+      }
+      // 新しく出来た部屋を上に
+      list.sort((a, b) => b.code.localeCompare(a.code));
+      socket.emit("open_rooms_list", { rooms: list });
+    } catch (err) {
+      console.error("[list_open_rooms error]", err);
+      socket.emit("open_rooms_list", { rooms: [] });
+    }
+  });
+
+  // ---- オープンチャット: 部屋を作成する ----
+  socket.on("create_open_room", (payload) => {
+    try {
+      const { displayName, avatar, clientId } = payload && typeof payload === "object" ? payload : {};
+      const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
+      const myAvatar = sanitizeAvatar(avatar);
+      const myClientId = typeof clientId === "string" ? clientId.slice(0, 64) : null;
+
+      const title = String((payload && payload.title) || "").trim().slice(0, 30);
+      if (!title) {
+        socket.emit("join_error", { code: "need_title", message: "部屋名を入力してください" });
+        return;
+      }
+
+      const tags = sanitizeOpenTags(payload && payload.tags);
+      const locked = !!(payload && payload.locked);
+      const memberRestriction = sanitizeRestriction(payload && payload.memberRestriction);
+      const parsedLimit = parseInt(payload && payload.limit, 10);
+      const limit = Number.isFinite(parsedLimit) ? Math.min(50, Math.max(2, parsedLimit)) : 10;
+
+      leaveCurrentRoom(socket, true);
+
+      const roomCode = uniqueOpenRoomCode();
+      const room = makeRoom("group", limit);
+      room.isOpen = true;
+      room.title = title;
+      room.tags = tags;
+      room.locked = locked;
+      room.inviteCode = locked ? genInviteCode() : null;
+      room.memberRestriction = memberRestriction;
+      rooms.set(roomCode, room);
+
+      room.members.push({ socketId: socket.id, name, avatar: myAvatar, clientId: myClientId });
+      socketRoom.set(socket.id, roomCode);
+      socket.join(roomCode);
+
+      socket.emit("chat_history", { messages: buildHistory(room) });
+      io.to(roomCode).emit("group_update", {
+        code: roomCode,
+        limit: room.limit,
+        members: room.members.map((m) => ({ socketId: m.socketId, name: m.name, avatar: m.avatar || null })),
+        joinedName: name,
+        roomTitle: room.title,
+      });
+      socket.emit("open_room_created", { title: room.title, inviteCode: room.inviteCode });
+      console.log(`[open create] code=${roomCode} title="${title}" by ${name}`);
+    } catch (err) {
+      console.error("[create_open_room error]", err);
+      socket.emit("join_error", { message: "部屋の作成中にエラーが発生しました" });
+    }
+  });
+
+  // ---- オープンチャット: 一覧から部屋に参加する ----
+  socket.on("join_open_room", (payload) => {
+    try {
+      const { displayName, code, inviteCode, avatar, clientId } =
+        payload && typeof payload === "object" ? payload : {};
+      const name = String(displayName || "名無し").trim().slice(0, 20) || "名無し";
+      const myAvatar = sanitizeAvatar(avatar);
+      const myClientId = typeof clientId === "string" ? clientId.slice(0, 64) : null;
+
+      const roomCode = normalizeCode(code);
+      const room = rooms.get(roomCode);
+
+      if (!room || !room.isOpen) {
+        socket.emit("join_error", { code: "not_found", message: "この部屋は見つかりませんでした(すでに解散した可能性があります)" });
+        return;
+      }
+
+      if (room.locked) {
+        const given = String(inviteCode || "").trim().toUpperCase();
+        if (!given || given !== room.inviteCode) {
+          socket.emit("join_error", { code: "bad_invite", message: "招待コードが正しくありません" });
+          return;
+        }
+      }
+
+      if (room.members.length >= room.limit) {
+        socket.emit("join_error", { code: "full_group", message: "この部屋は満員です" });
+        return;
+      }
+
+      leaveCurrentRoom(socket, true);
+
+      room.members.push({ socketId: socket.id, name, avatar: myAvatar, clientId: myClientId });
+      socketRoom.set(socket.id, roomCode);
+      socket.join(roomCode);
+
+      socket.emit("chat_history", { messages: buildHistory(room) });
+      io.to(roomCode).emit("group_update", {
+        code: roomCode,
+        limit: room.limit,
+        members: room.members.map((m) => ({ socketId: m.socketId, name: m.name, avatar: m.avatar || null })),
+        joinedName: name,
+        roomTitle: room.title,
+      });
+      console.log(`[open join] code=${roomCode} title="${room.title}" ${name} (${room.members.length}/${room.limit})`);
+    } catch (err) {
+      console.error("[join_open_room error]", err);
       socket.emit("join_error", { message: "参加中にエラーが発生しました" });
     }
   });
