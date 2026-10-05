@@ -26,8 +26,12 @@
 
   // ---------- パネルの開閉・タブ ----------
   const overlay = $("settingsOverlay");
-  function closeSettings() { overlay.classList.add("hidden"); stopMicTest(); }
-  $("gearBtn").onclick = () => { overlay.classList.remove("hidden"); refreshDevices(); };
+  function closeSettings() {
+    stopMicTest();
+    overlay.classList.add("closing");
+    setTimeout(() => { overlay.classList.add("hidden"); overlay.classList.remove("closing"); }, 180);
+  }
+  $("gearBtn").onclick = () => { overlay.classList.remove("hidden", "closing"); refreshDevices(); };
   $("closeSettings").onclick = closeSettings;
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettings(); });
   document.querySelectorAll(".tab").forEach((b) => {
