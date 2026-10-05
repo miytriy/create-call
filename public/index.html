@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -208,13 +208,25 @@
   [data-theme="light"] .reply-quote::before { border-color: #d4d2c8; }
   [data-theme="light"] .reply-quote .rq-name { color: #3a3d48; }
   .reply-preview {
-    display: flex; align-items: center; gap: 8px; padding: 6px 10px; margin-bottom: 8px;
-    background: #20242f; border: 1px solid #33384a; border-radius: 10px; font-size: 12px;
+    display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 8px;
+    background: rgba(224,168,64,.14); border: 1px solid rgba(224,168,64,.35); border-radius: 10px;
+    font-size: 13px;
   }
   .reply-preview .rp-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c7cad3; }
-  .reply-preview button { width: auto; margin: 0; padding: 2px 8px; background: none; color: inherit; font-size: 14px; }
-  [data-theme="light"] .reply-preview { background: #efeee8; border-color: #d4d2c8; }
+  .reply-preview .rp-text b { color: #e0a840; font-weight: 700; }
+  .reply-preview .rp-mention {
+    width: auto; margin: 0; padding: 3px 9px; background: #20242f; border: 1px solid #33384a;
+    color: #8a8f9e; font-size: 11px; font-weight: 700; border-radius: 999px; flex: none;
+  }
+  .reply-preview .rp-mention.on { background: #4a9eff; border-color: #4a9eff; color: #fff; }
+  .reply-preview .rp-cancel {
+    width: 22px; height: 22px; flex: none; margin: 0; padding: 0; border-radius: 50%;
+    background: rgba(255,255,255,.08); border: none; color: inherit; font-size: 12px; line-height: 1;
+  }
+  [data-theme="light"] .reply-preview { background: rgba(224,168,64,.12); border-color: rgba(224,168,64,.4); }
   [data-theme="light"] .reply-preview .rp-text { color: #3a3d48; }
+  [data-theme="light"] .reply-preview .rp-mention { background: #efeee8; border-color: #d4d2c8; color: #6b6f7c; }
+  [data-theme="light"] .reply-preview .rp-cancel { background: rgba(0,0,0,.06); }
   /* --- オープンチャット: タグ選択・部屋一覧 --- */
   .tag-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
   .tag-chip {
@@ -407,8 +419,8 @@
     </div>
     <div id="chatBox" class="chat-box chat-box-tall"></div>
     <div id="replyPreview" class="reply-preview hidden">
-      <span class="rp-text" id="replyPreviewText"></span>
-      <button id="replyPreviewCancel" aria-label="返信を取り消す">✕</button>
+      <span class="rp-text"><b id="replyPreviewText"></b> に返信中</span>
+      <button id="replyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
     </div>
     <div id="typingIndicator" class="typing-indicator hidden">
       <span class="dots"><span>●</span><span>●</span><span>●</span></span>
@@ -474,8 +486,9 @@
     <div id="groupChatBox" class="chat-box chat-box-tall"></div>
     <div id="mentionList" class="mention-list hidden"></div>
     <div id="groupReplyPreview" class="reply-preview hidden">
-      <span class="rp-text" id="groupReplyPreviewText"></span>
-      <button id="groupReplyPreviewCancel" aria-label="返信を取り消す">✕</button>
+      <span class="rp-text"><b id="groupReplyPreviewText"></b> に返信中</span>
+      <button id="groupReplyMentionToggle" class="rp-mention on" type="button">@ ON</button>
+      <button id="groupReplyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
     </div>
     <div id="groupTypingIndicator" class="typing-indicator hidden">
       <span class="dots"><span>●</span><span>●</span><span>●</span></span>
@@ -1282,10 +1295,12 @@
   // ---------- 返信 ----------
   let replyTarget = null; // 個人/ランダム用
   let groupReplyTarget = null; // グループ用
+  let groupReplyMentionOn = true; // 返信と同時に @メンションも付けるか(グループのみ)
   const replyPreview = document.getElementById("replyPreview");
   const replyPreviewText = document.getElementById("replyPreviewText");
   const groupReplyPreview = document.getElementById("groupReplyPreview");
   const groupReplyPreviewText = document.getElementById("groupReplyPreviewText");
+  const groupReplyMentionToggle = document.getElementById("groupReplyMentionToggle");
 
   function setReplyTarget(id, isGroup) {
     const ref = messageEls.get(id);
@@ -1295,12 +1310,16 @@
     const target = { id, name: who, text: snippet, verified: ref.mine ? isMyAccountVerified() : ref.verified };
     if (isGroup) {
       groupReplyTarget = target;
-      groupReplyPreviewText.textContent = `${who}: ${snippet}`;
+      groupReplyPreviewText.textContent = who;
+      groupReplyMentionOn = true;
+      groupReplyMentionToggle.classList.add("on");
+      groupReplyMentionToggle.textContent = "@ ON";
+      groupReplyMentionToggle.classList.toggle("hidden", ref.mine); // 自分への返信にメンションは不要
       groupReplyPreview.classList.remove("hidden");
       groupMsgInput.focus();
     } else {
       replyTarget = target;
-      replyPreviewText.textContent = `${who}: ${snippet}`;
+      replyPreviewText.textContent = who;
       replyPreview.classList.remove("hidden");
       msgInput.focus();
     }
@@ -1312,6 +1331,11 @@
   document.getElementById("groupReplyPreviewCancel").addEventListener("click", () => {
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
+  });
+  groupReplyMentionToggle.addEventListener("click", () => {
+    groupReplyMentionOn = !groupReplyMentionOn;
+    groupReplyMentionToggle.classList.toggle("on", groupReplyMentionOn);
+    groupReplyMentionToggle.textContent = groupReplyMentionOn ? "@ ON" : "@ OFF";
   });
 
   function buildReplyQuote(replyTo, isGroup) {
@@ -1594,8 +1618,13 @@
   groupMsgInput.addEventListener("blur", () => { setTimeout(hideMentionList, 150); });
 
   function sendGroupMessage() {
-    const text = groupMsgInput.value.trim();
+    let text = groupMsgInput.value.trim();
     if (!text) return;
+    // 返信中で「@ON」なら、相手の名前を自動でメンションとして本文に付ける
+    if (groupReplyTarget && groupReplyMentionOn && groupReplyTarget.name !== "自分") {
+      const prefix = "@" + groupReplyTarget.name + " ";
+      if (!text.startsWith(prefix)) text = prefix + text;
+    }
     const payload = { text, ...getMyColors() };
     if (groupReplyTarget) payload.replyTo = groupReplyTarget;
     socket.emit("send_message", payload);
