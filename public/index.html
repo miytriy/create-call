@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>Talkie</title>
+<title>通話・チャット</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -90,6 +90,9 @@
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
   .hidden { display: none; }
+  /* --- 画面切り替えのふわっとしたアニメーション --- */
+  @keyframes screenIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  .screen-enter { animation: screenIn .22s cubic-bezier(.2,.8,.2,1); }
   /* --- モード選択画面 --- */
   .mode-card {
     width: 100%; text-align: left; padding: 14px; border-radius: 14px;
@@ -108,7 +111,7 @@
   .chat-header { display: flex; align-items: center; gap: 10px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid #2a2e3a; }
   .chat-header-info { flex: 1; min-width: 0; }
   .chat-header-name { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chat-header-sub { font-size: 11px; color: #8a8f9e; }
+  .chat-header-sub { font-size: 11px; color: #8a8f9e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .icon-btn {
     width: 36px; height: 36px; flex: none; margin: 0; padding: 0;
     border-radius: 50%; background: #20242f; border: 1px solid #33384a; color: inherit; font-size: 16px;
@@ -133,6 +136,11 @@
   .msg-body { flex: 1; min-width: 0; }
   .msg-head { display: flex; align-items: baseline; gap: 7px; }
   .msg-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .verified-badge {
+    flex: none; width: 14px; height: 14px; border-radius: 50%; background: #4a9eff; color: #fff;
+    font-size: 9px; line-height: 14px; text-align: center; font-weight: 700;
+  }
+  .rq-name .verified-badge, .reactor-row .verified-badge { margin-left: 3px; vertical-align: -1px; display: inline-block; }
   .msg-time { font-size: 10.5px; color: #5f6473; flex: none; }
   .msg-text { font-size: 14px; line-height: 1.5; margin-top: 2px; word-break: break-word; white-space: pre-wrap; }
   .msg-flat.mine .msg-name { color: var(--my-name-color, #e0a840); }
@@ -260,9 +268,22 @@
   [data-theme="light"] .spinner { border-color: #d4d2c8; border-top-color: #e0a840; }
   /* --- 設定パネル --- */
   .gear { position: fixed; top: 12px; right: 12px; width: auto; margin: 0; padding: 8px 10px; background: #20242f; border: 1px solid #33384a; font-size: 16px; z-index: 5; }
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end;
+    justify-content: center; z-index: 10; transition: opacity .16s ease;
+  }
   .overlay.hidden { display: none; }
-  .sheet { width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #181b25; border: 1px solid #2a2e3a; border-radius: 16px 16px 0 0; padding: 16px; }
+  .overlay:not(.closing) { animation: overlayIn .18s ease; }
+  .overlay.closing { opacity: 0; }
+  @keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+  .sheet {
+    width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #181b25;
+    border: 1px solid #2a2e3a; border-radius: 16px 16px 0 0; padding: 16px;
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+  }
+  .overlay:not(.closing) .sheet { animation: sheetIn .22s cubic-bezier(.2,.8,.2,1); }
+  .overlay.closing .sheet { transform: translateY(18px); opacity: 0; }
+  @keyframes sheetIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .x { width: auto; margin: 0; padding: 4px 10px; background: none; color: inherit; }
   .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
@@ -441,11 +462,16 @@
     <button id="openCreateSubmitBtn">この内容で部屋を作る</button>
   </div>
 
-  <!-- ⑥ グループチャット中(テキストのみ・オープンチャットもここを共用) -->
-  <div id="groupRoom" class="hidden">
-    <p class="status" id="groupStatus"></p>
-    <p class="member-list" id="groupMembers"></p>
-    <div id="groupChatBox" class="chat-box"></div>
+  <!-- ⑥ グループチャット中(テキストのみ・オープンチャットもここを共用)。個人チャットと同じ構造に統一 -->
+  <div id="groupRoom" class="hidden chat-screen">
+    <div class="chat-header">
+      <button id="groupLeaveBtn" class="icon-btn" aria-label="退出する">←</button>
+      <div class="chat-header-info">
+        <div class="chat-header-name" id="groupStatus"></div>
+        <div class="chat-header-sub" id="groupMembers"></div>
+      </div>
+    </div>
+    <div id="groupChatBox" class="chat-box chat-box-tall"></div>
     <div id="mentionList" class="mention-list hidden"></div>
     <div id="groupReplyPreview" class="reply-preview hidden">
       <span class="rp-text" id="groupReplyPreviewText"></span>
@@ -455,11 +481,10 @@
       <span class="dots"><span>●</span><span>●</span><span>●</span></span>
       <span id="groupTypingText"></span>
     </div>
-    <div class="row" style="margin-bottom:8px;">
+    <div class="composer">
       <input id="groupMsgInput" placeholder="メッセージを入力(@で相手を選べます)" />
-      <button id="groupSendBtn">送信</button>
+      <button id="groupSendBtn" class="send-btn" aria-label="送信">➤</button>
     </div>
-    <button id="groupLeaveBtn" class="secondary">退出する</button>
   </div>
 
   <audio id="remoteAudio" autoplay></audio>
@@ -540,6 +565,11 @@
   }
   const myClientId = getClientId();
 
+  // 「認証済み」(Googleサインイン)かどうか。settings.js の window.authUser を参照する。
+  function isMyAccountVerified() {
+    return !!(window.authUser && window.authUser.verified);
+  }
+
   // ---------- 画面切り替え ----------
   const SCREENS = ["modeSelect", "codeSetup", "randomSetup", "waiting", "matched", "groupRoom", "openList", "openCreate"];
   const OPEN_TAGS = ["雑談", "ゲーム", "音楽", "勉強", "その他"];
@@ -547,6 +577,10 @@
   function showScreen(name, title) {
     SCREENS.forEach((id) => document.getElementById(id).classList.toggle("hidden", id !== name));
     if (title) mainTitle.textContent = title;
+    const el = document.getElementById(name);
+    el.classList.remove("screen-enter");
+    void el.offsetWidth; // 強制リフロー: 同じ画面に戻ったときもアニメーションをやり直す
+    el.classList.add("screen-enter");
   }
 
   let currentMode = null; // 'personal' | 'group' | 'random'
@@ -562,7 +596,15 @@
   let partnerAvatar = null; // 個人/ランダムチャット(1対1)の相手のアイコン
   let groupAvatars = new Map(); // グループチャット: socketId -> アイコン(data URL)
   let personalPartnerName = null; // 個人/ランダムチャット(1対1)の相手の名前(リアクションの「誰が」表示用)
+  let personalPartnerVerified = false; // 同上、相手が認証済みかどうか
   let groupNamesById = new Map(); // グループチャット: socketId -> 名前(同上)
+  let groupVerifiedById = new Map(); // グループチャット: socketId -> 認証済みかどうか(同上)
+
+  function resolveVerified(socketId, isGroup) {
+    if (socketId === socket.id) return isMyAccountVerified();
+    if (isGroup) return !!groupVerifiedById.get(socketId);
+    return personalPartnerVerified;
+  }
 
   // 入室前に画面をまっさらにしておく(直後に届く履歴を、重複なくきれいに表示するため)
   function resetChatUiBeforeJoin() {
@@ -659,7 +701,7 @@
     if (!code) { showCodeError("部屋コードを入力してください"); return; }
     showCodeError("");
     resetChatUiBeforeJoin();
-    const payload = { displayName, code, mode: currentMode, avatar: getMyAvatar(), clientId: myClientId };
+    const payload = { displayName, code, mode: currentMode, avatar: getMyAvatar(), clientId: myClientId, verified: isMyAccountVerified() };
     if (currentMode === "group") {
       let limit = parseInt(groupLimitInput.value, 10);
       if (!Number.isFinite(limit)) limit = 10;
@@ -683,7 +725,7 @@
     const displayName = randomNameInput.value.trim() || "名無し";
     showRandomError("");
     resetChatUiBeforeJoin();
-    socket.emit("join_random", { displayName, avatar: getMyAvatar(), clientId: myClientId });
+    socket.emit("join_random", { displayName, avatar: getMyAvatar(), clientId: myClientId, verified: isMyAccountVerified() });
   });
 
   // ---------- 待機画面 ----------
@@ -750,10 +792,13 @@
     muteBtn.textContent = muted ? "🔇 ミュート解除" : "🎤 ミュートする";
   });
 
-  socket.on("matched", ({ partnerName, partnerAvatar: pa, initiator }) => {
-    matchedStatus.textContent = partnerName;
+  socket.on("matched", ({ partnerName, partnerAvatar: pa, partnerVerified, initiator }) => {
+    matchedStatus.innerHTML = "";
+    matchedStatus.appendChild(document.createTextNode(partnerName));
+    if (partnerVerified) matchedStatus.appendChild(makeVerifiedBadge());
     partnerAvatar = pa || null;
     personalPartnerName = partnerName;
+    personalPartnerVerified = !!partnerVerified;
     muted = false;
     muteBtn.textContent = "🎤 ミュートする";
     // chatBox は入室時(resetChatUiBeforeJoin)で既に空にしてあり、
@@ -804,15 +849,15 @@
 
   let currentOpenRoomTitle = null; // オープンチャットとして入っている場合、その部屋名(ヘッダー表示用)
 
-  socket.on("group_update", ({ code, members, limit, joinedName, leftName, roomTitle }) => {
+  socket.on("group_update", ({ code, members, limit, joinedName, leftName }) => {
     // 自分がまだ入室画面を見ていない(=これが自分自身の入室)場合は、入室メッセージを出さない
     const alreadyInRoom = currentMode === "group" && !document.getElementById("groupRoom").classList.contains("hidden");
     const wasOpen = currentMode === "open";
     currentMode = "group";
-    if (roomTitle) currentOpenRoomTitle = roomTitle; // オープンチャットの部屋名(作成者・参加者どちらにも届く)
     groupMemberNames = members.map((m) => m.name);
     groupAvatars = new Map(members.map((m) => [m.socketId, m.avatar || null]));
     groupNamesById = new Map(members.map((m) => [m.socketId, m.name]));
+    groupVerifiedById = new Map(members.map((m) => [m.socketId, !!m.verified]));
     if (alreadyInRoom) {
       if (joinedName) addSystemMessage(groupChatBox, `👋 ${joinedName} さんが入室しました`);
       if (leftName) addSystemMessage(groupChatBox, `🚪 ${leftName} さんが退出しました`);
@@ -941,7 +986,7 @@
         resetChatUiBeforeJoin();
         socket.emit("join_open_room", {
           displayName, code: r.code, inviteCode: inviteCode.trim(),
-          avatar: getMyAvatar(), clientId: myClientId,
+          avatar: getMyAvatar(), clientId: myClientId, verified: isMyAccountVerified(),
         });
       });
 
@@ -978,6 +1023,7 @@
       limit,
       avatar: getMyAvatar(),
       clientId: myClientId,
+      verified: isMyAccountVerified(),
     });
   });
 
@@ -1064,10 +1110,13 @@
   // ---------- 下から出る操作シート(汎用) ----------
   function closeActionSheet() {
     const el = document.getElementById("msgActionOverlay");
-    if (el) el.remove();
+    if (!el || el.classList.contains("closing")) return;
+    el.classList.add("closing");
+    setTimeout(() => el.remove(), 180);
   }
   function openActionSheet(buildFn) {
-    closeActionSheet();
+    const existing = document.getElementById("msgActionOverlay");
+    if (existing) existing.remove(); // 連続で開かれた場合は、古いものを即座に差し替える
     const overlay = document.createElement("div");
     overlay.className = "overlay";
     overlay.id = "msgActionOverlay";
@@ -1243,7 +1292,7 @@
     if (!ref) return;
     const who = ref.mine ? "自分" : ref.name;
     const snippet = ref.text.length > 40 ? ref.text.slice(0, 40) + "…" : ref.text;
-    const target = { id, name: who, text: snippet };
+    const target = { id, name: who, text: snippet, verified: ref.mine ? isMyAccountVerified() : ref.verified };
     if (isGroup) {
       groupReplyTarget = target;
       groupReplyPreviewText.textContent = `${who}: ${snippet}`;
@@ -1282,6 +1331,7 @@
     const nameEl = document.createElement("span");
     nameEl.className = "rq-name";
     nameEl.textContent = replyTo.name;
+    if (replyTo.verified) nameEl.appendChild(makeVerifiedBadge());
 
     const textEl = document.createElement("span");
     textEl.className = "rq-text";
@@ -1325,7 +1375,8 @@
       socketIds.forEach((sid) => {
         const row = document.createElement("div");
         row.className = "reactor-row";
-        row.textContent = resolveName(sid, isGroup);
+        row.appendChild(document.createTextNode(resolveName(sid, isGroup)));
+        if (resolveVerified(sid, isGroup)) row.appendChild(makeVerifiedBadge());
         sheet.appendChild(row);
       });
       const mine = socketIds.includes(socket.id);
@@ -1360,7 +1411,16 @@
     messageEls.forEach((ref, id) => { if (!ref.mine) socket.emit("read_message", { id }); });
   });
 
-  function renderMessage(targetBox, { id, from, name, text, nameColor, textColor, replyTo, ts }) {
+  // 認証済み(Googleサインイン)バッジ。本物のユーザー確認ではなく、あくまで目印。
+  function makeVerifiedBadge() {
+    const b = document.createElement("span");
+    b.className = "verified-badge";
+    b.textContent = "✓";
+    b.title = "認証済み(Googleアカウント)";
+    return b;
+  }
+
+  function renderMessage(targetBox, { id, from, name, text, nameColor, textColor, replyTo, verified, ts }) {
     const mine = from === socket.id;
     const isGroup = targetBox === groupChatBox;
 
@@ -1384,10 +1444,11 @@
     const nameEl = document.createElement("span");
     nameEl.className = "msg-name";
     nameEl.textContent = mine ? "自分" : name;
+    head.appendChild(nameEl);
+    if (verified) head.appendChild(makeVerifiedBadge());
     const timeEl = document.createElement("span");
     timeEl.className = "msg-time";
     timeEl.textContent = formatTime(ts);
-    head.appendChild(nameEl);
     head.appendChild(timeEl);
 
     const textEl = document.createElement("div");
@@ -1407,7 +1468,7 @@
     row.appendChild(body);
 
     targetBox.appendChild(row);
-    const ref = { row, body, head, textEl, reactionRow, readEl, mine, isGroup, name, from, text, replyTo: replyTo || null, edited: false, targetBox };
+    const ref = { row, body, head, textEl, reactionRow, readEl, mine, isGroup, name, from, text, verified: !!verified, replyTo: replyTo || null, edited: false, targetBox };
     messageEls.set(id, ref);
     renderMessageText(ref);
     bindLongPress(row, id);
