@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>Talkie</title>
+<title>通話・チャット</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -207,13 +207,18 @@
   [data-theme="light"] .reply-quote { color: #6b6f7c; background: rgba(0,0,0,.03); }
   [data-theme="light"] .reply-quote::before { border-color: #d4d2c8; }
   [data-theme="light"] .reply-quote .rq-name { color: #3a3d48; }
+  /* --- 返信中バー + 送信欄を、1つの繋がった箱として見せる --- */
+  .composer-wrap {
+    border-radius: 20px; overflow: hidden; background: #0f111a; border: 1px solid #33384a;
+  }
+  [data-theme="light"] .composer-wrap { background: #f7f6f2; border-color: #d4d2c8; }
   .reply-preview {
-    display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 8px;
-    background: rgba(224,168,64,.14); border: 1px solid rgba(224,168,64,.35); border-radius: 10px;
+    display: flex; align-items: center; gap: 10px; padding: 9px 14px;
+    background: rgba(74,158,255,.14); border-bottom: 1px solid rgba(74,158,255,.3);
     font-size: 13px;
   }
   .reply-preview .rp-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c7cad3; }
-  .reply-preview .rp-text b { color: #e0a840; font-weight: 700; }
+  .reply-preview .rp-text b { color: #4a9eff; font-weight: 700; }
   .reply-preview .rp-mention {
     width: auto; margin: 0; padding: 3px 9px; background: #20242f; border: 1px solid #33384a;
     color: #8a8f9e; font-size: 11px; font-weight: 700; border-radius: 999px; flex: none;
@@ -223,10 +228,17 @@
     width: 22px; height: 22px; flex: none; margin: 0; padding: 0; border-radius: 50%;
     background: rgba(255,255,255,.08); border: none; color: inherit; font-size: 12px; line-height: 1;
   }
-  [data-theme="light"] .reply-preview { background: rgba(224,168,64,.12); border-color: rgba(224,168,64,.4); }
+  [data-theme="light"] .reply-preview { background: rgba(74,158,255,.1); border-color: rgba(74,158,255,.3); }
   [data-theme="light"] .reply-preview .rp-text { color: #3a3d48; }
   [data-theme="light"] .reply-preview .rp-mention { background: #efeee8; border-color: #d4d2c8; color: #6b6f7c; }
   [data-theme="light"] .reply-preview .rp-cancel { background: rgba(0,0,0,.06); }
+  .composer-wrap .composer { padding: 4px 4px 4px 14px; }
+  .composer-wrap .composer input { background: transparent; border: none; border-radius: 0; padding: 12px 0; }
+  /* --- 返信中、対象メッセージ本体を青く光らせる --- */
+  .msg-flat.reply-target-highlight {
+    background: rgba(74,158,255,.14); box-shadow: 0 0 0 2px rgba(74,158,255,.55) inset;
+    transition: background .2s ease, box-shadow .2s ease;
+  }
   /* --- オープンチャット: タグ選択・部屋一覧 --- */
   .tag-picker { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
   .tag-chip {
@@ -261,7 +273,10 @@
   [data-theme="light"] .mention-list button { background: #efeee8; border-color: #d4d2c8; color: #3a3d48; }
   .composer { display: flex; align-items: center; gap: 8px; }
   .composer input { flex: 1; margin-bottom: 0; border-radius: 999px; padding: 10px 16px; }
-  .send-btn { width: 42px; height: 42px; flex: none; margin: 0; padding: 0; border-radius: 50%; font-size: 16px; }
+  .send-btn {
+    width: 42px; height: 42px; flex: none; margin: 0; padding: 0; border-radius: 50%; font-size: 16px;
+    background: #4a9eff; color: #fff;
+  }
   [data-theme="light"] .icon-btn { background: #efeee8; color: #3a3d48; border-color: #d4d2c8; }
   [data-theme="light"] .chat-header { border-color: #dcdad2; }
   [data-theme="light"] .chat-header-sub, [data-theme="light"] .system-msg { color: #6b6f7c; }
@@ -418,17 +433,19 @@
       <button id="spkMuteBtn" class="secondary">🔊 スピーカーをミュートする</button>
     </div>
     <div id="chatBox" class="chat-box chat-box-tall"></div>
-    <div id="replyPreview" class="reply-preview hidden">
-      <span class="rp-text"><b id="replyPreviewText"></b> に返信中</span>
-      <button id="replyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
-    </div>
     <div id="typingIndicator" class="typing-indicator hidden">
       <span class="dots"><span>●</span><span>●</span><span>●</span></span>
       <span id="typingText"></span>
     </div>
-    <div class="composer">
-      <input id="msgInput" placeholder="メッセージを入力" />
-      <button id="sendBtn" class="send-btn" aria-label="送信">➤</button>
+    <div class="composer-wrap">
+      <div id="replyPreview" class="reply-preview hidden">
+        <span class="rp-text"><b id="replyPreviewText"></b> に返信中</span>
+        <button id="replyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
+      </div>
+      <div class="composer">
+        <input id="msgInput" placeholder="メッセージを入力" />
+        <button id="sendBtn" class="send-btn" aria-label="送信">➤</button>
+      </div>
     </div>
   </div>
 
@@ -485,18 +502,20 @@
     </div>
     <div id="groupChatBox" class="chat-box chat-box-tall"></div>
     <div id="mentionList" class="mention-list hidden"></div>
-    <div id="groupReplyPreview" class="reply-preview hidden">
-      <span class="rp-text"><b id="groupReplyPreviewText"></b> に返信中</span>
-      <button id="groupReplyMentionToggle" class="rp-mention on" type="button">@ ON</button>
-      <button id="groupReplyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
-    </div>
     <div id="groupTypingIndicator" class="typing-indicator hidden">
       <span class="dots"><span>●</span><span>●</span><span>●</span></span>
       <span id="groupTypingText"></span>
     </div>
-    <div class="composer">
-      <input id="groupMsgInput" placeholder="メッセージを入力(@で相手を選べます)" />
-      <button id="groupSendBtn" class="send-btn" aria-label="送信">➤</button>
+    <div class="composer-wrap">
+      <div id="groupReplyPreview" class="reply-preview hidden">
+        <span class="rp-text"><b id="groupReplyPreviewText"></b> に返信中</span>
+        <button id="groupReplyMentionToggle" class="rp-mention on" type="button">@ ON</button>
+        <button id="groupReplyPreviewCancel" class="rp-cancel" aria-label="返信を取り消す">✕</button>
+      </div>
+      <div class="composer">
+        <input id="groupMsgInput" placeholder="メッセージを入力(@で相手を選べます)" />
+        <button id="groupSendBtn" class="send-btn" aria-label="送信">➤</button>
+      </div>
     </div>
   </div>
 
@@ -626,8 +645,10 @@
     messageEls.clear();
     replyTarget = null;
     replyPreview.classList.add("hidden");
+    clearReplyHighlight();
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
+    clearReplyHighlight();
     personalTyping.clear();
     groupTyping.clear();
   }
@@ -795,6 +816,7 @@
     messageEls.clear();
     replyTarget = null;
     replyPreview.classList.add("hidden");
+    clearReplyHighlight();
     personalTyping.clear();
     showScreen("modeSelect", "💬 チャットを選ぶ");
   });
@@ -834,6 +856,7 @@
     messageEls.clear();
     replyTarget = null;
     replyPreview.classList.add("hidden");
+    clearReplyHighlight();
     personalTyping.clear();
     showScreen("modeSelect", "💬 チャットを選ぶ");
     showCodeError("相手が退出しました。もう一度入室できます。");
@@ -855,6 +878,7 @@
     groupMemberNames = [];
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
+    clearReplyHighlight();
     groupTyping.clear();
     currentOpenRoomTitle = null;
     showScreen("modeSelect", "💬 チャットを選ぶ");
@@ -1302,9 +1326,21 @@
   const groupReplyPreviewText = document.getElementById("groupReplyPreviewText");
   const groupReplyMentionToggle = document.getElementById("groupReplyMentionToggle");
 
+  // 返信中、対象メッセージ本体を青く光らせて「どれに返信しているか」を分かりやすくする
+  let highlightedReplyRowEl = null;
+  function clearReplyHighlight() {
+    if (highlightedReplyRowEl) {
+      highlightedReplyRowEl.classList.remove("reply-target-highlight");
+      highlightedReplyRowEl = null;
+    }
+  }
+
   function setReplyTarget(id, isGroup) {
     const ref = messageEls.get(id);
     if (!ref) return;
+    clearReplyHighlight();
+    ref.row.classList.add("reply-target-highlight");
+    highlightedReplyRowEl = ref.row;
     const who = ref.mine ? "自分" : ref.name;
     const snippet = ref.text.length > 40 ? ref.text.slice(0, 40) + "…" : ref.text;
     const target = { id, name: who, text: snippet, verified: ref.mine ? isMyAccountVerified() : ref.verified };
@@ -1327,10 +1363,12 @@
   document.getElementById("replyPreviewCancel").addEventListener("click", () => {
     replyTarget = null;
     replyPreview.classList.add("hidden");
+    clearReplyHighlight();
   });
   document.getElementById("groupReplyPreviewCancel").addEventListener("click", () => {
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
+    clearReplyHighlight();
   });
   groupReplyMentionToggle.addEventListener("click", () => {
     groupReplyMentionOn = !groupReplyMentionOn;
@@ -1570,6 +1608,7 @@
     msgInput.value = "";
     replyTarget = null;
     replyPreview.classList.add("hidden");
+    clearReplyHighlight();
     lastTypingEmit = 0;
   }
   sendBtn.addEventListener("click", sendMessage);
@@ -1631,6 +1670,7 @@
     groupMsgInput.value = "";
     groupReplyTarget = null;
     groupReplyPreview.classList.add("hidden");
+    clearReplyHighlight();
     hideMentionList();
     lastTypingEmit = 0;
   }
