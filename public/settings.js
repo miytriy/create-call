@@ -26,12 +26,18 @@
 
   // ---------- パネルの開閉・タブ ----------
   const overlay = $("settingsOverlay");
+  const settingsSheet = $("settingsSheet");
   function closeSettings() {
     stopMicTest();
     overlay.classList.add("closing");
-    setTimeout(() => { overlay.classList.add("hidden"); overlay.classList.remove("closing"); }, 180);
+    setTimeout(() => {
+      overlay.classList.add("hidden");
+      overlay.classList.remove("closing");
+      settingsSheet.style.maxHeight = ""; // 次回開いたときは、伸ばした高さをリセットする
+    }, 180);
   }
   $("gearBtn").onclick = () => { overlay.classList.remove("hidden", "closing"); refreshDevices(); };
+  if (window.makeSheetDraggable) window.makeSheetDraggable(settingsSheet, $("settingsSheetHandle"));
   $("closeSettings").onclick = closeSettings;
   overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettings(); });
   document.querySelectorAll(".tab").forEach((b) => {
