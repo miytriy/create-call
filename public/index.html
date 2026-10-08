@@ -309,11 +309,19 @@
   .sheet {
     width: 100%; max-width: 460px; max-height: 88vh; overflow-y: auto; background: #181b25;
     border: 1px solid #2a2e3a; border-radius: 16px 16px 0 0; padding: 16px;
-    transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease;
+    transition: transform .18s cubic-bezier(.2,.8,.2,1), opacity .18s ease, max-height .18s ease;
+    /* 長押しで出すメニューなので、中の文字は選択できないようにする(input内は影響を受けない) */
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
+  .sheet input, .sheet textarea { -webkit-user-select: text; user-select: text; -webkit-touch-callout: default; }
   .overlay:not(.closing) .sheet { animation: sheetIn .22s cubic-bezier(.2,.8,.2,1); }
   .overlay.closing .sheet { transform: translateY(18px); opacity: 0; }
   @keyframes sheetIn { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+  .sheet-handle {
+    width: 38px; height: 5px; border-radius: 999px; background: #33384a;
+    margin: -4px auto 12px; cursor: grab; touch-action: none;
+  }
+  [data-theme="light"] .sheet-handle { background: #d4d2c8; }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .x { width: auto; margin: 0; padding: 4px 10px; background: none; color: inherit; }
   .tabs { display: flex; gap: 4px; margin-bottom: 14px; }
@@ -527,7 +535,8 @@
 
 <button id="gearBtn" class="gear" aria-label="設定">⚙️</button>
 <div id="settingsOverlay" class="overlay hidden">
-  <div class="sheet">
+  <div class="sheet" id="settingsSheet">
+    <div class="sheet-handle" id="settingsSheetHandle"></div>
     <div class="sheet-head"><b>設定</b><button id="closeSettings" class="x">✕</button></div>
     <div class="tabs">
       <button class="tab on" data-tab="account">アカウント</button>
@@ -1147,6 +1156,39 @@
 
   const EMOJI_SET = ["👍", "😂", "❤️", "😮", "😢", "🎉", "👎", "🙏"];
 
+  // ---------- シートを上にスワイプすると、その分だけ縦に伸びる(汎用) ----------
+  // 設定パネル・操作シートの両方で使うため window に出しておく
+  window.makeSheetDraggable = function makeSheetDraggable(sheetEl, handleEl) {
+    let startY = 0, startHeight = 0, dragging = false;
+    const maxH = () => window.innerHeight * 0.92;
+    const start = (y) => {
+      dragging = true;
+      startY = y;
+      startHeight = sheetEl.getBoundingClientRect().height;
+      sheetEl.style.transition = "none";
+    };
+    const move = (y) => {
+      if (!dragging) return;
+      const delta = startY - y; // 上方向のドラッグ量
+      const newH = Math.min(maxH(), Math.max(startHeight, startHeight + delta));
+      sheetEl.style.maxHeight = newH + "px";
+    };
+    const end = () => {
+      dragging = false;
+      sheetEl.style.transition = "";
+    };
+    handleEl.addEventListener("touchstart", (e) => start(e.touches[0].clientY), { passive: true });
+    handleEl.addEventListener("touchmove", (e) => move(e.touches[0].clientY), { passive: true });
+    handleEl.addEventListener("touchend", end);
+    handleEl.addEventListener("mousedown", (e) => {
+      start(e.clientY);
+      const onMove = (ev) => move(ev.clientY);
+      const onUp = () => { end(); document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  };
+
   // ---------- 下から出る操作シート(汎用) ----------
   function closeActionSheet() {
     const el = document.getElementById("msgActionOverlay");
@@ -1162,10 +1204,14 @@
     overlay.id = "msgActionOverlay";
     const sheet = document.createElement("div");
     sheet.className = "sheet";
+    const handle = document.createElement("div");
+    handle.className = "sheet-handle";
+    sheet.appendChild(handle);
     buildFn(sheet);
     overlay.appendChild(sheet);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) closeActionSheet(); });
     document.body.appendChild(overlay);
+    window.makeSheetDraggable(sheet, handle);
   }
   function sheetActionButton(label, danger, fn) {
     const b = document.createElement("button");
