@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -187,27 +187,24 @@
   .edit-actions { display: flex; gap: 8px; }
   .edit-actions button { width: auto; margin: 0; padding: 6px 14px; font-size: 12px; }
   .edited-tag { font-size: 10.5px; color: #5f6473; margin-left: 4px; }
-  /* --- 返信の引用表示(アイコン+名前+抜粋のカード、下の本文へ繋がる線付き)・返信プレビュー --- */
-  .reply-quote {
-    display: flex; align-items: center; gap: 6px; padding: 5px 9px 5px 10px; margin: 0 0 5px 10px;
-    font-size: 12px; color: #8a8f9e; background: rgba(255,255,255,.04); border-radius: 8px;
-    cursor: pointer; max-width: calc(100% - 10px); position: relative;
-  }
-  .reply-quote::before {
-    content: ""; position: absolute; left: -10px; top: -8px; bottom: 50%; width: 10px;
-    border-left: 2px solid #33384a; border-bottom: 2px solid #33384a; border-radius: 0 0 0 8px;
-  }
-  .reply-quote .rq-avatar {
-    width: 16px; height: 16px; border-radius: 50%; flex: none; overflow: hidden;
+  /* --- 返信の引用表示: 小さいアイコンを「本来のアイコンの真上」に置き、線でつなぐ --- */
+  .msg-avatar-col { display: flex; flex-direction: column; align-items: center; flex: none; }
+  .rq-avatar {
+    width: 20px; height: 20px; border-radius: 50%; flex: none; overflow: hidden; margin-bottom: 3px;
     background: #33384a; color: #fff; font-size: 9px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }
-  .reply-quote .rq-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .reply-quote .rq-name { font-weight: 700; color: #c7cad3; flex: none; }
-  .reply-quote .rq-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  [data-theme="light"] .reply-quote { color: #6b6f7c; background: rgba(0,0,0,.03); }
-  [data-theme="light"] .reply-quote::before { border-color: #d4d2c8; }
-  [data-theme="light"] .reply-quote .rq-name { color: #3a3d48; }
+  .rq-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .rq-connector { width: 2px; height: 7px; background: #33384a; margin-bottom: 3px; border-radius: 1px; }
+  [data-theme="light"] .rq-connector { background: #d4d2c8; }
+  .reply-quote-line {
+    display: flex; align-items: baseline; gap: 5px; font-size: 11.5px; color: #8a8f9e;
+    margin-bottom: 2px; max-width: 100%; cursor: pointer;
+  }
+  .reply-quote-line .rq-name { font-weight: 700; color: #c7cad3; flex: none; }
+  .reply-quote-line .rq-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  [data-theme="light"] .reply-quote-line { color: #6b6f7c; }
+  [data-theme="light"] .reply-quote-line .rq-name { color: #3a3d48; }
   /* --- 返信中バー + 送信欄を、1つの繋がった箱として見せる --- */
   .composer-wrap {
     border-radius: 20px; overflow: hidden; background: #0f111a; border: 1px solid #33384a;
@@ -1335,7 +1332,6 @@
 
   function renderMessageText(ref) {
     ref.textEl.innerHTML = "";
-    if (ref.replyTo) ref.textEl.appendChild(buildReplyQuote(ref.replyTo, ref.isGroup));
 
     let mentionsMe = false;
     if (ref.isGroup) {
@@ -1425,39 +1421,40 @@
     groupReplyMentionToggle.textContent = groupReplyMentionOn ? "@ ON" : "@ OFF";
   });
 
-  function buildReplyQuote(replyTo, isGroup) {
-    const q = document.createElement("div");
-    q.className = "reply-quote";
-
+  // 返信の引用: 小さいアイコンを avatarCol(本来のアイコンの真上)に、
+  // 名前+抜粋の1行を body の先頭(本文の上)に差し込む
+  function buildReplyQuote(replyTo, isGroup, avatarCol, body) {
     const origRef = messageEls.get(replyTo.id);
     const letter = (replyTo.name || "?").trim().slice(0, 1).toUpperCase();
     let avatarUrl = null;
     if (origRef) {
       avatarUrl = origRef.mine ? getMyAvatar() : (isGroup ? groupAvatars.get(origRef.from) : partnerAvatar);
     }
-    const avatarEl = document.createElement("span");
-    avatarEl.className = "rq-avatar";
-    setAvatarEl(avatarEl, avatarUrl, letter);
+    const miniAvatar = document.createElement("span");
+    miniAvatar.className = "rq-avatar";
+    setAvatarEl(miniAvatar, avatarUrl, letter);
+    const connector = document.createElement("span");
+    connector.className = "rq-connector";
+    avatarCol.appendChild(miniAvatar);
+    avatarCol.appendChild(connector);
 
+    const line = document.createElement("div");
+    line.className = "reply-quote-line";
     const nameEl = document.createElement("span");
     nameEl.className = "rq-name";
     nameEl.textContent = replyTo.name;
     if (replyTo.verified) nameEl.appendChild(makeVerifiedBadge());
-
     const textEl = document.createElement("span");
     textEl.className = "rq-text";
     textEl.textContent = replyTo.text;
-
-    q.appendChild(avatarEl);
-    q.appendChild(nameEl);
-    q.appendChild(textEl);
-
-    q.addEventListener("click", (e) => {
+    line.appendChild(nameEl);
+    line.appendChild(textEl);
+    line.addEventListener("click", (e) => {
       e.stopPropagation();
       const target = messageEls.get(replyTo.id);
       if (target) target.row.scrollIntoView({ block: "center", behavior: "smooth" });
     });
-    return q;
+    body.insertBefore(line, body.firstChild);
   }
 
   // ---------- リアクション(押すと「誰が押したか」が見られる) ----------
@@ -1541,6 +1538,8 @@
     if (!mine && HEX_RE.test(nameColor || "")) row.dataset.nameColor = nameColor;
     if (!mine && HEX_RE.test(textColor || "")) row.dataset.textColor = textColor;
 
+    const avatarCol = document.createElement("div");
+    avatarCol.className = "msg-avatar-col";
     const avatar = document.createElement("span");
     avatar.className = "avatar-circle";
     const letter = (name || "?").trim().slice(0, 1).toUpperCase();
@@ -1575,7 +1574,12 @@
     body.appendChild(textEl);
     body.appendChild(reactionRow);
     if (mine) body.appendChild(readEl);
-    row.appendChild(avatar);
+
+    // 返信の引用: 小さいアイコンを本来のアイコンの真上に、名前+抜粋を本文の上に差し込む
+    if (replyTo) buildReplyQuote(replyTo, isGroup, avatarCol, body);
+    avatarCol.appendChild(avatar);
+
+    row.appendChild(avatarCol);
     row.appendChild(body);
 
     targetBox.appendChild(row);
