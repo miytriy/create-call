@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>Talkie</title>
+<title>通話・チャット</title>
 <style>
   * { box-sizing: border-box; }
   html {
@@ -187,19 +187,17 @@
   .edit-actions { display: flex; gap: 8px; }
   .edit-actions button { width: auto; margin: 0; padding: 6px 14px; font-size: 12px; }
   .edited-tag { font-size: 10.5px; color: #5f6473; margin-left: 4px; }
-  /* --- 返信の引用表示: 小さいアイコンを「本来のアイコンの真上」に置き、線でつなぐ --- */
-  .msg-avatar-col { display: flex; flex-direction: column; align-items: center; flex: none; }
+  /* --- 返信の引用表示: 縦に積まず、小さいアイコン+名前+抜粋を横1行で、少し右にずらして本文の上に --- */
+  .msg-avatar-col { display: flex; flex: none; }
   .rq-avatar {
-    width: 20px; height: 20px; border-radius: 50%; flex: none; overflow: hidden; margin-bottom: 3px;
-    background: #33384a; color: #fff; font-size: 9px; font-weight: 700;
+    width: 16px; height: 16px; border-radius: 50%; flex: none; overflow: hidden;
+    background: #33384a; color: #fff; font-size: 8px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
   }
   .rq-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .rq-connector { width: 2px; height: 7px; background: #33384a; margin-bottom: 3px; border-radius: 1px; }
-  [data-theme="light"] .rq-connector { background: #d4d2c8; }
   .reply-quote-line {
-    display: flex; align-items: baseline; gap: 5px; font-size: 11.5px; color: #8a8f9e;
-    margin-bottom: 2px; max-width: 100%; cursor: pointer;
+    display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: #8a8f9e;
+    margin: 0 0 3px 10px; max-width: calc(100% - 10px); cursor: pointer;
   }
   .reply-quote-line .rq-name { font-weight: 700; color: #c7cad3; flex: none; }
   .reply-quote-line .rq-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1421,9 +1419,8 @@
     groupReplyMentionToggle.textContent = groupReplyMentionOn ? "@ ON" : "@ OFF";
   });
 
-  // 返信の引用: 小さいアイコンを avatarCol(本来のアイコンの真上)に、
-  // 名前+抜粋の1行を body の先頭(本文の上)に差し込む
-  function buildReplyQuote(replyTo, isGroup, avatarCol, body) {
+  // 返信の引用: 小さいアイコン+名前+抜粋を横1行にまとめ、少し右にずらして本文の上に差し込む
+  function buildReplyQuote(replyTo, isGroup, body) {
     const origRef = messageEls.get(replyTo.id);
     const letter = (replyTo.name || "?").trim().slice(0, 1).toUpperCase();
     let avatarUrl = null;
@@ -1433,10 +1430,6 @@
     const miniAvatar = document.createElement("span");
     miniAvatar.className = "rq-avatar";
     setAvatarEl(miniAvatar, avatarUrl, letter);
-    const connector = document.createElement("span");
-    connector.className = "rq-connector";
-    avatarCol.appendChild(miniAvatar);
-    avatarCol.appendChild(connector);
 
     const line = document.createElement("div");
     line.className = "reply-quote-line";
@@ -1447,6 +1440,7 @@
     const textEl = document.createElement("span");
     textEl.className = "rq-text";
     textEl.textContent = replyTo.text;
+    line.appendChild(miniAvatar);
     line.appendChild(nameEl);
     line.appendChild(textEl);
     line.addEventListener("click", (e) => {
@@ -1576,7 +1570,7 @@
     if (mine) body.appendChild(readEl);
 
     // 返信の引用: 小さいアイコンを本来のアイコンの真上に、名前+抜粋を本文の上に差し込む
-    if (replyTo) buildReplyQuote(replyTo, isGroup, avatarCol, body);
+    if (replyTo) buildReplyQuote(replyTo, isGroup, body);
     avatarCol.appendChild(avatar);
 
     row.appendChild(avatarCol);
