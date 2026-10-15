@@ -203,6 +203,9 @@
   .reply-quote-line .rq-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   [data-theme="light"] .reply-quote-line { color: #6b6f7c; }
   [data-theme="light"] .reply-quote-line .rq-name { color: #3a3d48; }
+  :root { --rq-line-color: #3a4152; }
+  [data-theme="light"] { --rq-line-color: #c9c7bd; }
+  .rq-connector-svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
   /* --- 返信中バー + 送信欄を、1つの繋がった箱として見せる --- */
   .composer-wrap {
     border-radius: 20px; overflow: hidden; background: #0f111a; border: 1px solid #33384a;
@@ -1449,6 +1452,30 @@
       if (target) target.row.scrollIntoView({ block: "center", behavior: "smooth" });
     });
     body.insertBefore(line, body.firstChild);
+    return miniAvatar;
+  }
+
+  // Discordのように、引用の小さいアイコンと本来のアイコンを曲線でつなぐ。
+  // チャット履歴は画面がまだ非表示(display:none)のうちに描画されることがあり、
+  // そのままだと getBoundingClientRect が全部0になって線が壊れるため、
+  // CSSで固定しているサイズから座標を直接計算する(表示状態に左右されない)。
+  function drawReplyConnector(row) {
+    const AVATAR_LEFT = 4, AVATAR_TOP = 7, AVATAR_SIZE = 34; // row padding + .avatar-circle
+    const MINI_LEFT = 58, MINI_TOP = 6, MINI_SIZE = 16; // row padding + avatarCol + gap + .reply-quote-line margin
+    const ax = AVATAR_LEFT + AVATAR_SIZE / 2;
+    const ay = AVATAR_TOP;
+    const mx = MINI_LEFT;
+    const my = MINI_TOP + MINI_SIZE / 2;
+    const midY = (my + ay) / 2;
+
+    const svgNS = "http://www.w3.org/2000/svg";
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("class", "rq-connector-svg");
+    const path = document.createElementNS(svgNS, "path");
+    path.setAttribute("d", `M ${mx} ${my} C ${mx - 12} ${my}, ${ax} ${midY}, ${ax} ${ay}`);
+    path.setAttribute("style", "fill:none; stroke:var(--rq-line-color); stroke-width:1.5; stroke-linecap:round;");
+    svg.appendChild(path);
+    row.appendChild(svg);
   }
 
   // ---------- リアクション(押すと「誰が押したか」が見られる) ----------
@@ -1569,8 +1596,11 @@
     body.appendChild(reactionRow);
     if (mine) body.appendChild(readEl);
 
-    // 返信の引用: 小さいアイコンを本来のアイコンの真上に、名前+抜粋を本文の上に差し込む
-    if (replyTo) buildReplyQuote(replyTo, isGroup, body);
+    // 返信の引用: 小さいアイコン+名前+抜粋を本文の上に、本来のアイコンとは線でつなぐ
+    if (replyTo) {
+      buildReplyQuote(replyTo, isGroup, body);
+      drawReplyConnector(row);
+    }
     avatarCol.appendChild(avatar);
 
     row.appendChild(avatarCol);
