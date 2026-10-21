@@ -57,6 +57,13 @@
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  /* サイト全体でテキスト選択を無効化(入力欄だけは入力・編集できるよう除外) */
+  html, body, body * {
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+  }
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
+  }
   html { color-scheme: dark; background: var(--bg); overscroll-behavior-y: none; }
   [data-theme="light"] { color-scheme: light; }
   [data-theme="dark"] { color-scheme: dark; }
