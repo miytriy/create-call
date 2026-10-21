@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   /* ===== デザイントークン ===== */
   :root {
@@ -168,7 +168,7 @@
   .row { display: flex; gap: 8px; }
   .row input { flex: 1; margin-bottom: 0; }
   .row button { width: auto; padding: 10px 16px; margin-bottom: 0; }
-  .hidden { display: none; }
+  .hidden, #modeSelect.hidden { display: none !important; }
 
   /* --- 画面切り替え --- */
   @keyframes screenIn { from { opacity: 0; transform: translateY(12px) scale(.99); } to { opacity: 1; transform: none; } }
@@ -192,7 +192,7 @@
   .mode-card:hover::before { opacity: .10; }
   .mode-card:active { transform: scale(.97); }
   .mode-card .mc-icon {
-    font-family: var(--emoji); font-size: 30px; line-height: 1;
+    font-family: var(--font); font-size: 28px; font-weight: 500; line-height: 1;
     width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center;
     background: var(--accent-soft); margin-bottom: 4px;
   }
@@ -461,22 +461,22 @@
   <!-- ① モード選択(2x2のコンパクトな並び) -->
   <div id="modeSelect">
     <button class="mode-card" data-mode="personal">
-      <span class="mc-icon">🔑</span>
-      <span class="mc-title">個人チャット</span>
+      <span class="mc-icon">⚿</span>
+      <span class="mc-title">プライベートチャット</span>
       <span class="mc-desc">1対1・通話あり</span>
     </button>
     <button class="mode-card" data-mode="group">
-      <span class="mc-icon">👥</span>
+      <span class="mc-icon">♺</span>
       <span class="mc-title">グループチャット</span>
       <span class="mc-desc">コードで複数人</span>
     </button>
     <button class="mode-card" data-mode="random">
-      <span class="mc-icon">🎲</span>
+      <span class="mc-icon">⚅</span>
       <span class="mc-title">ランダムチャット</span>
       <span class="mc-desc">自動マッチング</span>
     </button>
     <button class="mode-card" data-mode="open">
-      <span class="mc-icon">🏠</span>
+      <span class="mc-icon">⌂</span>
       <span class="mc-title">オープンチャット</span>
       <span class="mc-desc">公開部屋から参加</span>
     </button>
@@ -795,14 +795,14 @@
       document.getElementById("codeError").classList.add("hidden");
       document.getElementById("randomError").classList.add("hidden");
       if (currentMode === "random") {
-        showScreen("randomSetup", "🎲 ランダムチャット");
+        showScreen("randomSetup", "⚅ ランダムチャット");
       } else if (currentMode === "open") {
-        showScreen("openList", "🏠 オープンチャット");
+        showScreen("openList", "⌂ オープンチャット");
         refreshOpenRoomList();
       } else {
         document.getElementById("personalOptions").classList.toggle("hidden", currentMode !== "personal");
         document.getElementById("groupOptions").classList.toggle("hidden", currentMode !== "group");
-        showScreen("codeSetup", currentMode === "group" ? "👥 グループチャット" : "🔑 個人チャット");
+        showScreen("codeSetup", currentMode === "group" ? "♺ グループチャット" : "⚿ プライベートチャット");
       }
     });
   });
@@ -812,7 +812,7 @@
   });
   document.querySelectorAll("[data-back-open]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      showScreen("openList", "🏠 オープンチャット");
+      showScreen("openList", "⌂ オープンチャット");
       refreshOpenRoomList();
     });
   });
@@ -951,7 +951,7 @@
     muteBtn.textContent = "🎤 ミュートする";
     // chatBox は入室時(resetChatUiBeforeJoin)で既に空にしてあり、
     // この直前に届いた履歴(chat_history)がそこに描画されているので、ここでは消さない。
-    showScreen("matched", currentMode === "random" ? "🎲 ランダムチャット" : "🔑 個人チャット");
+    showScreen("matched", currentMode === "random" ? "⚅ ランダムチャット" : "⚿ プライベートチャット");
     addSystemMessage(chatBox, `✅ ${partnerName} さんとマッチングしました！`);
     callState.textContent = "通話: 接続準備中…";
     VoiceCall.start(socket, initiator, remoteAudio, (s) => {
@@ -1012,7 +1012,7 @@
       if (joinedName) addSystemMessage(groupChatBox, `👋 ${joinedName} さんが入室しました`);
       if (leftName) addSystemMessage(groupChatBox, `🚪 ${leftName} さんが退出しました`);
     }
-    const label = currentOpenRoomTitle ? `🏠 ${currentOpenRoomTitle}` : "👥 グループチャット";
+    const label = currentOpenRoomTitle ? `⌂ ${currentOpenRoomTitle}` : "♺ グループチャット";
     groupStatus.textContent = `${label}(${members.length}/${limit}人) コード: ${code}`;
     groupMembers.textContent = "参加者: " + members.map((m) => m.name).join("、");
     showScreen("groupRoom", label);
@@ -1102,7 +1102,7 @@
 
       const title = document.createElement("div");
       title.className = "or-title";
-      title.textContent = (r.locked ? "🔑 " : "") + r.title;
+      title.textContent = (r.locked ? "⚿ " : "") + r.title;
       card.appendChild(title);
 
       const meta = document.createElement("div");
@@ -1153,7 +1153,7 @@
     openRestrictionSel.value = "none";
     openLimitInput.value = 10;
     openCreateError.classList.add("hidden");
-    showScreen("openCreate", "🏠 部屋を作る");
+    showScreen("openCreate", "⌂ 部屋を作る");
   });
 
   openCreateSubmitBtn.addEventListener("click", () => {
