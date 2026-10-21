@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>通話・チャット</title>
+<title>Talkie</title>
 <style>
   /* ===== デザイントークン ===== */
   :root {
@@ -57,7 +57,7 @@
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html { color-scheme: dark; background: var(--bg); }
+  html { color-scheme: dark; background: var(--bg); overscroll-behavior-y: none; }
   [data-theme="light"] { color-scheme: light; }
   [data-theme="dark"] { color-scheme: dark; }
 
@@ -74,6 +74,8 @@
     justify-content: center;
     padding: 28px 14px 40px;
     min-height: 100vh;
+    min-height: 100dvh; /* スマホのアドレスバー分の余計なスクロールを防ぐ */
+    overscroll-behavior-y: none;
     -webkit-font-smoothing: antialiased;
     line-height: 1.5;
   }
