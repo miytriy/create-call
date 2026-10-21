@@ -33,6 +33,7 @@
     setTimeout(() => {
       overlay.classList.add("hidden");
       overlay.classList.remove("closing");
+      settingsSheet.style.height = "";
       settingsSheet.style.maxHeight = ""; // 次回開いたときは、伸ばした高さをリセットする
     }, 180);
   }
