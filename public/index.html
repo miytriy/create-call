@@ -604,7 +604,7 @@
     <input id="openLimitInput" type="number" min="2" max="50" value="10" />
 
     <p class="error hidden" id="openCreateError"></p>
-    <button id="openCreateSubmitBtn">この内容で部屋を作る</button>
+    <button id="openCreateSubmitBtn">部屋を作成</button>
   </div>
 
   <!-- ⑥ グループチャット中(テキストのみ・オープンチャットもここを共用)。個人チャットと同じ構造に統一 -->
@@ -812,7 +812,7 @@
   });
 
   document.querySelectorAll("[data-back]").forEach((btn) => {
-    btn.addEventListener("click", () => showScreen("modeSelect", "💬 チャットを選ぶ"));
+    btn.addEventListener("click", () => showScreen("modeSelect", "⇌ Talkie"));
   });
   document.querySelectorAll("[data-back-open]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -900,7 +900,7 @@
 
   cancelBtn.addEventListener("click", () => {
     socket.emit("leave_room");
-    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showScreen("modeSelect", "⇌ Talkie");
   });
 
   socket.on("join_error", ({ message }) => {
@@ -935,7 +935,7 @@
     replyPreview.classList.add("hidden");
     clearReplyHighlight();
     personalTyping.clear();
-    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showScreen("modeSelect", "⇌ Talkie");
   });
 
   muteBtn.addEventListener("click", () => {
@@ -975,7 +975,7 @@
     replyPreview.classList.add("hidden");
     clearReplyHighlight();
     personalTyping.clear();
-    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showScreen("modeSelect", "⇌ Talkie");
     showCodeError("相手が退出しました。もう一度入室できます。");
   });
 
@@ -998,7 +998,7 @@
     clearReplyHighlight();
     groupTyping.clear();
     currentOpenRoomTitle = null;
-    showScreen("modeSelect", "💬 チャットを選ぶ");
+    showScreen("modeSelect", "⇌ Talkie");
   });
 
   let currentOpenRoomTitle = null; // オープンチャットとして入っている場合、その部屋名(ヘッダー表示用)
