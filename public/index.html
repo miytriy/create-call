@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="color-scheme" content="light dark" />
 <meta name="google" content="notranslate" />
-<title>Talkie</title>
+<title>通話・チャット</title>
 <style>
   /* ===== デザイントークン ===== */
   :root {
@@ -421,6 +421,8 @@
   .overlay:not(.closing) .sheet { animation: sheetIn .26s cubic-bezier(.2,.8,.2,1); }
   .overlay.closing .sheet { transform: translateY(18px); opacity: 0; }
   @keyframes sheetIn { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
+  /* 設定シートは、どのタブでも同じ高さに固定(中身が多いタブはシート内でスクロール) */
+  #settingsSheet { height: min(640px, 88vh); }
   .sheet-handle { width: 42px; height: 5px; border-radius: 999px; background: var(--border-strong); margin: -6px auto 14px; cursor: grab; touch-action: none; }
   .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; font-size: 17px; }
   .x {
@@ -1273,6 +1275,7 @@
       const delta = startY - y; // 上方向のドラッグ量
       const newH = Math.min(maxH(), Math.max(startHeight, startHeight + delta));
       sheetEl.style.maxHeight = newH + "px";
+      if (sheetEl.id === "settingsSheet") sheetEl.style.height = newH + "px";
     };
     const end = () => {
       dragging = false;
