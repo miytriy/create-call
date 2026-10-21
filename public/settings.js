@@ -281,7 +281,7 @@
 
     avatarPreviewEl = document.createElement("div");
     avatarPreviewEl.style.cssText =
-      "width:56px; height:56px; border-radius:50%; background:#20242f; background-size:cover; " +
+      "width:56px; height:56px; border-radius:50%; background:var(--surface-2); background-size:cover; " +
       "background-position:center; display:flex; align-items:center; justify-content:center; font-size:24px; flex:none;";
     renderAvatarPreview();
 
