@@ -738,6 +738,7 @@ if (process.env.BOT_CHAT !== "off") {
     post: postBotMessage,
   });
   console.log("[bot] 常設の部屋のボット雑談を始めました(止めるときは BOT_CHAT=off)");
+  console.log(`[bot] AIの返事: ${process.env.ANTHROPIC_API_KEY ? "オン(モデル: " + (process.env.BOT_AI_MODEL || "claude-haiku-5-5") + ")" : "オフ(ANTHROPIC_API_KEY が未設定のため、ルールの返事だけ)"}`);
 }
 
 const PORT = process.env.PORT || 3000;
