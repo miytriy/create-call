@@ -116,6 +116,31 @@ function sanitizeOpenTags(tags) {
   return out;
 }
 
+// 常設のオープンチャット部屋: サーバーが起動するたびに作る。誰もいなくても、一覧に残り続ける(解散しない)。
+// コードは固定。作り直しても同じコードになるので、共有したリンクやメモが使い続けられる
+const PERMANENT_OPEN_ROOMS = [
+  { code: "OPUB01", title: "雑談ひろば", tags: ["雑談"], limit: 50 },
+  { code: "OPUB02", title: "ゲームの部屋", tags: ["ゲーム"], limit: 50 },
+  { code: "OPUB03", title: "音楽ラウンジ", tags: ["音楽"], limit: 50 },
+  { code: "OPUB04", title: "勉強ルーム", tags: ["勉強"], limit: 50 },
+  { code: "OPUB05", title: "なんでも部屋", tags: ["その他"], limit: 50 },
+];
+function createPermanentRooms() {
+  for (const def of PERMANENT_OPEN_ROOMS) {
+    if (rooms.has(def.code)) continue;
+    const room = makeRoom("group", def.limit);
+    room.isOpen = true;
+    room.permanent = true;
+    room.title = def.title;
+    room.tags = sanitizeOpenTags(def.tags);
+    room.locked = false;
+    room.inviteCode = null;
+    room.memberRestriction = "none";
+    rooms.set(def.code, room);
+  }
+  console.log(`[open] 常設の部屋を${PERMANENT_OPEN_ROOMS.length}つ用意しました`);
+}
+
 const OPEN_RESTRICTIONS = ["none", "account", "verified"];
 function sanitizeRestriction(v) {
   return OPEN_RESTRICTIONS.includes(v) ? v : "none";
@@ -183,6 +208,10 @@ function leaveCurrentRoom(socket, notifyPartner = true) {
         roomTitle: room.isOpen ? room.title : null,
       });
     }
+  } else if (room.permanent) {
+    // 常設の部屋: 誰もいなくなっても消さない。次に入る人に、前の人の発言が見えないよう履歴だけ消す
+    room.members = [];
+    room.messages = new Map();
   } else {
     rooms.delete(code);
   }
@@ -289,10 +318,16 @@ io.on("connection", (socket) => {
           memberRestriction: room.memberRestriction,
           limit: room.limit,
           memberCount: room.members.length,
+          official: !!room.permanent,
         });
       }
-      // 新しく出来た部屋を上に
-      list.sort((a, b) => b.code.localeCompare(a.code));
+      // 常設の部屋を上に(決めた順)、そのあとに新しく出来た部屋を上から
+      const order = PERMANENT_OPEN_ROOMS.map((d) => d.code);
+      list.sort((a, b) => {
+        if (a.official !== b.official) return a.official ? -1 : 1;
+        if (a.official) return order.indexOf(a.code) - order.indexOf(b.code);
+        return b.code.localeCompare(a.code);
+      });
       socket.emit("open_rooms_list", { rooms: list });
     } catch (err) {
       console.error("[list_open_rooms error]", err);
@@ -665,6 +700,8 @@ io.on("connection", (socket) => {
     console.log(`[disconnect] ${socket.id}`);
   });
 });
+
+createPermanentRooms();
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

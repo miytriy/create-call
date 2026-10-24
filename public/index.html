@@ -1113,7 +1113,7 @@
 
       const title = document.createElement("div");
       title.className = "or-title";
-      title.textContent = (r.locked ? "⚿ " : "") + r.title;
+      title.textContent = (r.official ? "★ " : "") + (r.locked ? "⚿ " : "") + r.title;
       card.appendChild(title);
 
       const meta = document.createElement("div");
