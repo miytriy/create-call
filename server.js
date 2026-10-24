@@ -12,7 +12,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
-const { startBotChat } = require("./bots");
+const { startBotChat, createBotResponder } = require("./bots");
 
 const app = express();
 const server = http.createServer(app);
@@ -23,6 +23,9 @@ app.use(express.static(path.join(__dirname, "public")));
 // code -> { type: 'personal'|'group', limit: number, members: [{ socketId, name }],
 //           msgSeq: number, messages: Map(id -> { reactions: Map(emoji->Set(socketId)), readBy: Set(socketId), authorSocketId }) }
 const rooms = new Map();
+
+// 常設の部屋のボット(人への返事・あいさつ)。起動時に、下の「ボット」の所で本物に差し替える
+let botHooks = { onHumanMessage() {}, onHumanJoin() {} };
 
 // socketId -> 現在参加している部屋コード
 const socketRoom = new Map();
@@ -435,6 +438,7 @@ io.on("connection", (socket) => {
         roomTitle: room.title,
       });
       console.log(`[open join] code=${roomCode} title="${room.title}" ${name} (${room.members.length}/${room.limit})`);
+      if (room.permanent) botHooks.onHumanJoin(roomCode, name); // 常設の部屋では、ボットがあいさつする
     } catch (err) {
       console.error("[join_open_room error]", err);
       socket.emit("join_error", { message: "参加中にエラーが発生しました" });
@@ -542,6 +546,7 @@ io.on("connection", (socket) => {
         replyTo,
         ts: Date.now(),
       });
+      if (room.permanent) botHooks.onHumanMessage(code, me.name, finalText); // 常設の部屋では、ボットが返事をする
     } catch (err) {
       console.error("[send_message error]", err);
     }
@@ -717,6 +722,16 @@ function postBotMessage(code, bot, text) {
   io.to(code).emit("chat_message", { id, from, name: bot.name, text, nameColor, textColor: null, replyTo: null, ts: Date.now() });
 }
 if (process.env.BOT_CHAT !== "off") {
+  botHooks = createBotResponder({
+    rooms,
+    typing: (code, bot) => io.to(code).emit("typing", { name: bot.name }),
+    post: postBotMessage,
+    getRecent: (code) => {
+      const room = rooms.get(code);
+      return room ? [...room.messages.values()].slice(-10).map((m) => ({ name: m.name, text: m.text })) : [];
+    },
+    humanCount: (code) => (rooms.get(code) ? rooms.get(code).members.length : 0),
+  });
   startBotChat({
     rooms,
     typing: (code, bot) => io.to(code).emit("typing", { name: bot.name }),

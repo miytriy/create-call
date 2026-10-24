@@ -7,6 +7,14 @@
 //   「話す人の番号」は、その部屋の bots の何番目か(0始まり)です。
 // - 部屋のコード(OPUB01〜)は、server.js の PERMANENT_OPEN_ROOMS と同じにしてください。
 // - 止めたいとき: 環境変数 BOT_CHAT=off でサーバーを起動します。
+//
+// 【人の話し相手になる機能】
+// - 人が発言すると、ボットが返事をします(入室したときは、あいさつもします)。返事は、まずこのファイルの
+//   ルール(キーワードで選ぶ定型文)で作ります。AIは使いません。
+// - 環境変数 ANTHROPIC_API_KEY を設定すると、ふつうの会話だけAI(Claude)が返事を作ります。失敗したときは、
+//   ルールの返事に戻ります。モデルは BOT_AI_MODEL(省略時 claude-haiku-5-5)、1時間の上限は BOT_AI_MAX_PER_HOUR(省略時 120)。
+// - 「死にたい」などの言葉には、AIでもルールでもなく、必ず決まった返事(相談窓口の案内つき)を返します。
+// - 人が話している間は、ボット同士の雑談はいったん止まります。
 // =============================================================
 
 const BOT_ROOMS = {
@@ -183,6 +191,19 @@ const BOT_ROOMS = {
   },
 };
 
+// 部屋ごとの話題(AIへのヒントと、定型文の聞き返しに使う)
+const ROOM_TOPICS = { OPUB01: "雑談", OPUB02: "ゲーム", OPUB03: "音楽", OPUB04: "勉強", OPUB05: "なんでも" };
+const FOLLOW_UPS = {
+  OPUB01: ["最近、ちょっと嬉しかったことある？", "今日は何してた？", "休みの日って、どう過ごすのが好き？"],
+  OPUB02: ["最近やってるゲームある？", "好きなジャンルってどのへん？", "ゲームを始めるきっかけって何だった？"],
+  OPUB03: ["最近よく聴いてる曲ある？", "音楽って、どんな時に聴く？", "初めて好きになったアーティストって誰？"],
+  OPUB04: ["今は何を勉強してるの？", "勉強するのは朝派？夜派？", "続けるコツって何かある？"],
+  OPUB05: ["最近ハマってることある？", "もし明日休みなら、何したい？", "好きな食べ物って何？"],
+};
+
+// 人が話している間は、ボット同士の台本を止める(部屋コード -> 止める時刻)
+const quietUntil = new Map();
+
 const rand = (min, max) => min + Math.random() * (max - min);
 const shuffle = (arr) => {
   const a = [...arr];
@@ -214,7 +235,7 @@ function startBotChat({ rooms, typing, post }) {
     const step = () => {
       let wait = 8000;
       try {
-        if (rooms.has(code)) {
+        if (rooms.has(code) && Date.now() >= (quietUntil.get(code) || 0)) {
           const [who, text] = thread[line];
           const bot = cfg.bots[who];
           typing(code, bot);
@@ -238,4 +259,167 @@ function startBotChat({ rooms, typing, post }) {
   }
 }
 
-module.exports = { BOT_ROOMS, startBotChat };
+// ---------------------------------------------------------
+// 人への返事
+// ---------------------------------------------------------
+const SAFETY_RE = /死にたい|しにたい|消えたい|自殺|自傷|リスカ|殺してほしい|生きていたくない|生きてる意味/;
+const SAFETY_REPLY =
+  "それは心配だよ。ひとりで抱えこまないでね。私たちはボットで、ちゃんとした力にはなれないから、身近な信頼できる人や、相談窓口に話してみてほしいな。" +
+  "よりそいホットライン 0120-279-338(24時間・無料)。命の危険があるときは、119か110に連絡してね。";
+
+// キーワード -> 返事の候補。上から順に調べて、最初に当てはまったものを使う。{name} は、話しかけてきた人の名前
+const REPLY_RULES = [
+  { test: /ボット|bot|ＢＯＴ|AI|人間|中の人|ロボット/i, replies: ["そう、私たちはボットだよ。名前に[BOT]って付いてるでしょ？でも、話し相手になれたら嬉しいな", "ボットだよ〜。それでもよければ、ゆっくり話していってね"] },
+  { test: /おはよ/, replies: ["おはよう！{name}さん、よく眠れた？", "おはよー！今日もゆるっといこうね"] },
+  { test: /こんばんは|こんばんわ/, replies: ["こんばんは、{name}さん！今日はどんな一日だった？", "こんばんは〜。夜はゆっくり話せていいよね"] },
+  { test: /こんにちは|こんにちわ|こんちは|はじめまして|初めまして|やあ|ヤッホー|やっほー/, replies: ["こんにちは、{name}さん！来てくれて嬉しいな", "やっほー！ゆっくりしていってね"] },
+  { test: /おやすみ/, replies: ["おやすみ、{name}さん。いい夢をね", "おやすみなさい〜。また話そうね"] },
+  { test: /ありがと|感謝|助かった/, replies: ["どういたしまして！", "いえいえ〜、こちらこそ"] },
+  { test: /ごめん|すみません|すまん/, replies: ["全然大丈夫だよ、気にしないで", "いいのいいの！"] },
+  { test: /つらい|辛い|悲しい|さみしい|寂しい|不安|泣きたい|落ち込/, replies: ["それは大変だったね…。無理しなくていいよ、よかったら話してみて", "そっか、しんどいね。ここで少し吐き出していっていいよ", "話してくれてありがとう。{name}さんのペースで大丈夫だよ"] },
+  { test: /疲れた|つかれた|しんどい|だるい|眠い|ねむい|ねむたい/, replies: ["おつかれさま！今日はがんばったんだね", "ちょっと休憩しよっか。あったかい飲み物でも飲んで", "無理しすぎないでね、{name}さん"] },
+  { test: /嬉しい|うれしい|楽しい|たのしい|最高|やった|よかった/, replies: ["それは嬉しいね！何があったの？", "いいね〜！もっと聞かせて", "よかったね、{name}さん！"] },
+  { test: /[wｗ]{2,}|草|笑/, replies: ["(笑)", "ふふっ、いいね", "それは笑っちゃうね"] },
+];
+const QUESTION_REPLIES = ["うーん、どうだろう。{name}さんはどう思う？", "いい質問だね。私はこう思うけど、{name}さんの考えも聞きたいな", "それ、気になるね。みんなはどう思うかな？"];
+const GENERIC_REPLIES = ["なるほどね。それでそれで？", "へぇ〜、もう少し聞かせて！", "そうなんだ。{name}さんは、どう感じた？", "わかる〜。それって、よくあるよね"];
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+// 返事の文を作る(ルール版)。kind: "safety" | "rule" | "question" | "generic"
+function ruleReply(text, name, code) {
+  const t = String(text || "");
+  if (SAFETY_RE.test(t)) return { kind: "safety", text: SAFETY_REPLY };
+  for (const r of REPLY_RULES) {
+    if (r.test.test(t)) return { kind: "rule", text: pick(r.replies).replace(/\{name\}/g, name) };
+  }
+  if (/[?？]/.test(t)) return { kind: "question", text: pick(QUESTION_REPLIES).replace(/\{name\}/g, name) };
+  // ふつうの発言: 聞き返す(半分くらいは、その部屋の話題で聞く)
+  const follow = FOLLOW_UPS[code];
+  const base = follow && Math.random() < 0.4 ? pick(follow) : pick(GENERIC_REPLIES).replace(/\{name\}/g, name);
+  return { kind: "generic", text: base };
+}
+
+// ---- AI(Claude)で返事を作る。ANTHROPIC_API_KEY があるときだけ。失敗したら null を返す(ルールの返事に戻る) ----
+const aiCalls = []; // 直近1時間の呼び出し時刻(費用の上限)
+function aiAllowed() {
+  const max = Number(process.env.BOT_AI_MAX_PER_HOUR) > 0 ? Number(process.env.BOT_AI_MAX_PER_HOUR) : 120;
+  const since = Date.now() - 3600 * 1000;
+  while (aiCalls.length && aiCalls[0] < since) aiCalls.shift();
+  return aiCalls.length < max;
+}
+async function aiReply({ bot, code, recent, name }) {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key || typeof fetch !== "function" || !aiAllowed()) return null;
+  aiCalls.push(Date.now());
+  const shortName = bot.name.replace(/\[BOT\]/, "");
+  const system =
+    `あなたは、チャットの部屋(話題: ${ROOM_TOPICS[code] || "雑談"})にいる、${shortName}という名前のボットです。` +
+    "やさしくて親しみやすい口調の日本語で、1〜2文(80文字以内)で返信します。ボットであることは隠さず、聞かれたら正直に答えます。" +
+    "住所・電話番号・本名など個人情報は、聞き出さない・求めない。医療や法律などの専門的な助言はしない。" +
+    "つらい気持ちの話には、否定せず穏やかに寄り添う。命に関わる話題になったら、よりそいホットライン 0120-279-338(24時間・無料)と、119/110を案内する。" +
+    "返信の本文だけを出力し、名前や記号の飾りは付けない。";
+  const transcript = recent.map((m) => `${m.name}: ${m.text}`).join("\n");
+  const user = `これまでの会話:\n${transcript}\n\n${name}さんの最新の発言に、${shortName}として返信してください。`;
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      signal: ctl.signal,
+      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: process.env.BOT_AI_MODEL || "claude-haiku-5-5", max_tokens: 200, system, messages: [{ role: "user", content: user }] }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const out = data && Array.isArray(data.content) ? data.content.filter((c) => c.type === "text").map((c) => c.text).join("") : "";
+    const clean = out.replace(/^[^:：]{1,12}[:：]\s*/, "").trim().slice(0, 200);
+    return clean || null;
+  } catch (err) {
+    console.error("[bot ai error]", err && err.message ? err.message : err);
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// 人の発言・入室に反応するボット。hooks の onHumanMessage / onHumanJoin を、server.js から呼ぶ
+//   getRecent(code) => 直近の発言 [{ name, text }] / humanCount(code) => いま部屋にいる人数
+function createBotResponder({ rooms, typing, post, getRecent, humanCount }) {
+  const state = new Map(); // code -> { lastBot, lastAt, pending, greetedAt }
+  const st = (code) => {
+    if (!state.has(code)) state.set(code, { lastBot: null, lastAt: 0, pending: false, greetedAt: 0 });
+    return state.get(code);
+  };
+  const chooseBot = (code, text) => {
+    const bots = BOT_ROOMS[code].bots;
+    // 名前を呼ばれたボットが返事をする(@ミナ[BOT] / @ミナ / ミナ、…)
+    const called = bots.find((b) => text.includes(b.name) || text.includes(b.name.replace(/\[BOT\]/, "")));
+    if (called) return { bot: called, called: true };
+    const others = bots.filter((b) => b.id !== st(code).lastBot);
+    return { bot: pick(others.length ? others : bots), called: false };
+  };
+  const speak = (code, bot, text, delay) => {
+    const s = st(code);
+    s.pending = true;
+    typing(code, bot);
+    setTimeout(() => {
+      try { if (rooms.has(code)) post(code, bot, text); } catch (err) { console.error("[bot reply error]", err); }
+      s.pending = false;
+      s.lastAt = Date.now();
+      s.lastBot = bot.id;
+      quietUntil.set(code, Date.now() + 25000); // 返事のあとしばらくは、台本の雑談を入れない
+      if (s.queued) { const q = s.queued; s.queued = null; setTimeout(() => onMsg(code, q.name, q.text), 600); }
+    }, delay);
+  };
+  const handlers = {};
+  const onMsg = (code, name, text) => {
+      try {
+        if (!BOT_ROOMS[code] || !rooms.has(code)) return;
+        const s = st(code);
+        quietUntil.set(code, Date.now() + 45000); // 人が話している間は、台本の雑談を止める
+        const { bot, called } = chooseBot(code, text);
+        const safety = SAFETY_RE.test(text);
+        // 返事の頻度: 呼ばれた/つらい話のときは必ず。ひとりのときも必ず。何人か話しているときだけ、ボットが出しゃばらないよう控えめに
+        if (!called && !safety && humanCount(code) >= 2) {
+          if (s.pending || Date.now() - s.lastAt < 4000 || Math.random() > 0.35) return;
+        }
+        if (s.pending) { s.queued = { name, text }; return; } // ボットが話している最中の発言は、話し終えてから返事する
+        const rule = ruleReply(text, name, code);
+        const delay = rand(1500, 3500);
+        if (rule.kind === "safety" || !process.env.ANTHROPIC_API_KEY || rule.kind === "rule") {
+          speak(code, bot, rule.text, delay); // 安全の返事と、ルールにはっきり当てはまる返事は、ルールのまま
+          return;
+        }
+        s.pending = true; // AIの返事を待っている間も、次の返事は出さない
+        aiReply({ bot, code, recent: getRecent(code), name }).then((ai) => {
+          s.pending = false;
+          speak(code, bot, ai || rule.text, 800);
+        });
+      } catch (err) {
+        console.error("[bot onHumanMessage error]", err);
+      }
+  };
+  Object.assign(handlers, {
+    onHumanMessage: onMsg,
+    onHumanJoin(code, name) {
+      try {
+        if (!BOT_ROOMS[code] || !rooms.has(code)) return;
+        const s = st(code);
+        if (s.pending || Date.now() - s.greetedAt < 20000) return;
+        s.greetedAt = Date.now();
+        quietUntil.set(code, Date.now() + 30000);
+        const bot = pick(BOT_ROOMS[code].bots);
+        const lines = [`${name}さん、いらっしゃい！`, `おっ、${name}さんだ。ゆっくりしていってね`, `${name}さん、こんにちは〜。今日はどんな感じ？`];
+        speak(code, bot, pick(lines), rand(1500, 2500));
+      } catch (err) {
+        console.error("[bot onHumanJoin error]", err);
+      }
+    },
+  });
+  return handlers;
+}
+
+module.exports = { BOT_ROOMS, startBotChat, createBotResponder, ruleReply, aiReply };
