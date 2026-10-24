@@ -246,9 +246,10 @@ async function aiChatLine({ bot, mates, code, recent }) {
 //   typing    : (部屋コード, ボット) => 「入力中…」を出す
 //   post      : (部屋コード, ボット, セリフ) => 発言する
 //   getRecent : (部屋コード) => 直近の発言 [{ name, text }] (AIの雑談に使う)
+//   humanCount: (部屋コード) => いま部屋にいる人数(0人のときは、AIを使わない)
 // AIのキーがあるときは、AIがその場で会話を作る(台本は、失敗したときの予備)。
 // BOT_SPEED は、動作確認用(0.01 なら100倍速。ふだんは設定しない)
-function startBotChat({ rooms, typing, post, getRecent }) {
+function startBotChat({ rooms, typing, post, getRecent, humanCount }) {
   const speed = Number(process.env.BOT_SPEED) > 0 ? Number(process.env.BOT_SPEED) : 1;
   for (const [code, cfg] of Object.entries(BOT_ROOMS)) {
     let queue = [];
@@ -282,7 +283,7 @@ function startBotChat({ rooms, typing, post, getRecent }) {
       try {
         if (rooms.has(code) && Date.now() >= (quietUntil.get(code) || 0)) {
           let done = false;
-          if (getRecent && aiProvider() && aiAllowed("chat")) {
+          if (getRecent && humanCount && humanCount(code) > 0 && aiProvider() && aiAllowed("chat")) { // 人がいない間は、AIを使わない(台本のまま)
             const recent = getRecent(code);
             const last = recent.length ? recent[recent.length - 1].name : null;
             const bots = cfg.bots.filter((b) => b.name !== last); // 直前に話した子以外から選ぶ

@@ -740,6 +740,7 @@ if (process.env.BOT_CHAT !== "off") {
       const room = rooms.get(code);
       return room ? [...room.messages.values()].slice(-12).map((m) => ({ name: m.name, text: m.text })) : [];
     },
+    humanCount: (code) => (rooms.get(code) ? rooms.get(code).members.length : 0),
   });
   console.log("[bot] 常設の部屋のボット雑談を始めました(止めるときは BOT_CHAT=off)");
   const ai = aiProvider();
