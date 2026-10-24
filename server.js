@@ -12,6 +12,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+const { startBotChat } = require("./bots");
 
 const app = express();
 const server = http.createServer(app);
@@ -58,8 +59,10 @@ function buildHistory(room) {
       reactions: [...m.reactions.entries()].map(([e, s]) => ({ emoji: e, socketIds: [...s] })),
     });
   }
-  return list;
+  // 常設の部屋は、ボットの雑談がたまるので、入った人には直近の分だけ見せる
+  return room.permanent ? list.slice(-BOT_HISTORY_SHOWN) : list;
 }
+const BOT_HISTORY_SHOWN = 40;
 
 // チャットの色として許可する形式(#rrggbb)
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -702,6 +705,25 @@ io.on("connection", (socket) => {
 });
 
 createPermanentRooms();
+
+// ---- 常設の部屋のボット(台本は bots.js)。ボットは「入室者」ではないので、人数には数えない ----
+function postBotMessage(code, bot, text) {
+  const room = rooms.get(code);
+  if (!room) return;
+  const id = `${code}-${++room.msgSeq}`;
+  const from = `bot:${bot.id}`;
+  const nameColor = sanitizeColor(bot.color);
+  trackMessage(room, id, { authorSocketId: from, authorClientId: null, name: bot.name, text, nameColor, textColor: null, replyTo: null });
+  io.to(code).emit("chat_message", { id, from, name: bot.name, text, nameColor, textColor: null, replyTo: null, ts: Date.now() });
+}
+if (process.env.BOT_CHAT !== "off") {
+  startBotChat({
+    rooms,
+    typing: (code, bot) => io.to(code).emit("typing", { name: bot.name }),
+    post: postBotMessage,
+  });
+  console.log("[bot] 常設の部屋のボット雑談を始めました(止めるときは BOT_CHAT=off)");
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
