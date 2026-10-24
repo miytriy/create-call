@@ -11,8 +11,12 @@
 // 【人の話し相手になる機能】
 // - 人が発言すると、ボットが返事をします(入室したときは、あいさつもします)。返事は、まずこのファイルの
 //   ルール(キーワードで選ぶ定型文)で作ります。AIは使いません。
-// - 環境変数 ANTHROPIC_API_KEY を設定すると、ふつうの会話だけAI(Claude)が返事を作ります。失敗したときは、
-//   ルールの返事に戻ります。モデルは BOT_AI_MODEL(省略時 claude-haiku-5-5)、1時間の上限は BOT_AI_MAX_PER_HOUR(省略時 120)。
+// - AIのキーを環境変数に設定すると、ふつうの会話だけAIが返事を作ります。失敗したときは、ルールの返事に戻ります。
+//     GROQ_API_KEY      … Groq(省略時のモデル llama-3.1-8b-instant)
+//     XAI_API_KEY       … xAI の Grok(省略時のモデル grok-4.3)
+//     ANTHROPIC_API_KEY … Claude(省略時のモデル claude-haiku-5-5)
+//   複数あるときは、上の順に使います。BOT_AI_PROVIDER=groq|xai|anthropic で、使う会社を指定もできます。
+//   モデルは BOT_AI_MODEL で変更、1時間の上限は BOT_AI_MAX_PER_HOUR(省略時 120)。
 // - 「死にたい」などの言葉には、AIでもルールでもなく、必ず決まった返事(相談窓口の案内つき)を返します。
 // - 人が話している間は、ボット同士の雑談はいったん止まります。
 // =============================================================
@@ -302,7 +306,23 @@ function ruleReply(text, name, code) {
   return { kind: "generic", text: base };
 }
 
-// ---- AI(Claude)で返事を作る。ANTHROPIC_API_KEY があるときだけ。失敗したら null を返す(ルールの返事に戻る) ----
+// ---- AIで返事を作る。キー(GROQ_API_KEY など)があるときだけ。失敗したら null を返す(ルールの返事に戻る) ----
+// 使うAIを決める(キーが無ければ null)。Groq・xAI は OpenAI互換の形式、Anthropic は専用の形式
+const AI_PROVIDERS = {
+  groq: { kind: "openai", url: "https://api.groq.com/openai/v1/chat/completions", keyEnv: "GROQ_API_KEY", model: "llama-3.1-8b-instant" },
+  xai: { kind: "openai", url: "https://api.x.ai/v1/chat/completions", keyEnv: "XAI_API_KEY", model: "grok-4.3" },
+  anthropic: { kind: "anthropic", url: "https://api.anthropic.com/v1/messages", keyEnv: "ANTHROPIC_API_KEY", model: "claude-haiku-5-5" },
+};
+function aiProvider() {
+  const want = String(process.env.BOT_AI_PROVIDER || "").toLowerCase();
+  const names = AI_PROVIDERS[want] ? [want] : ["groq", "xai", "anthropic"];
+  for (const name of names) {
+    const p = AI_PROVIDERS[name];
+    const key = process.env[p.keyEnv];
+    if (key) return { name, ...p, key, model: process.env.BOT_AI_MODEL || p.model };
+  }
+  return null;
+}
 const aiCalls = []; // 直近1時間の呼び出し時刻(費用の上限)
 function aiAllowed() {
   const max = Number(process.env.BOT_AI_MAX_PER_HOUR) > 0 ? Number(process.env.BOT_AI_MAX_PER_HOUR) : 120;
@@ -311,8 +331,8 @@ function aiAllowed() {
   return aiCalls.length < max;
 }
 async function aiReply({ bot, code, recent, name }) {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key || typeof fetch !== "function" || !aiAllowed()) return null;
+  const provider = aiProvider();
+  if (!provider || typeof fetch !== "function" || !aiAllowed()) return null;
   aiCalls.push(Date.now());
   const shortName = bot.name.replace(/\[BOT\]/, "");
   const system =
@@ -326,15 +346,24 @@ async function aiReply({ bot, code, recent, name }) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const anthropic = provider.kind === "anthropic";
+    const res = await fetch(provider.url, {
       method: "POST",
       signal: ctl.signal,
-      headers: { "content-type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: process.env.BOT_AI_MODEL || "claude-haiku-5-5", max_tokens: 200, system, messages: [{ role: "user", content: user }] }),
+      headers: anthropic
+        ? { "content-type": "application/json", "x-api-key": provider.key, "anthropic-version": "2023-06-01" }
+        : { "content-type": "application/json", authorization: `Bearer ${provider.key}` },
+      body: JSON.stringify(
+        anthropic
+          ? { model: provider.model, max_tokens: 200, system, messages: [{ role: "user", content: user }] }
+          : { model: provider.model, max_completion_tokens: 200, temperature: 0.8, messages: [{ role: "system", content: system }, { role: "user", content: user }] }
+      ),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`${provider.name} HTTP ${res.status}`);
     const data = await res.json();
-    const out = data && Array.isArray(data.content) ? data.content.filter((c) => c.type === "text").map((c) => c.text).join("") : "";
+    const out = anthropic
+      ? (data && Array.isArray(data.content) ? data.content.filter((c) => c.type === "text").map((c) => c.text).join("") : "")
+      : (data && data.choices && data.choices[0] && data.choices[0].message && typeof data.choices[0].message.content === "string" ? data.choices[0].message.content : "");
     const clean = out.replace(/^[^:：]{1,12}[:：]\s*/, "").trim().slice(0, 200);
     return clean || null;
   } catch (err) {
@@ -389,7 +418,7 @@ function createBotResponder({ rooms, typing, post, getRecent, humanCount }) {
         if (s.pending) { s.queued = { name, text }; return; } // ボットが話している最中の発言は、話し終えてから返事する
         const rule = ruleReply(text, name, code);
         const delay = rand(1500, 3500);
-        if (rule.kind === "safety" || !process.env.ANTHROPIC_API_KEY || rule.kind === "rule") {
+        if (rule.kind === "safety" || !aiProvider() || rule.kind === "rule") {
           speak(code, bot, rule.text, delay); // 安全の返事と、ルールにはっきり当てはまる返事は、ルールのまま
           return;
         }
@@ -422,4 +451,4 @@ function createBotResponder({ rooms, typing, post, getRecent, humanCount }) {
   return handlers;
 }
 
-module.exports = { BOT_ROOMS, startBotChat, createBotResponder, ruleReply, aiReply };
+module.exports = { BOT_ROOMS, startBotChat, createBotResponder, ruleReply, aiReply, aiProvider };

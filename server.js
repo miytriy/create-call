@@ -12,7 +12,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
-const { startBotChat, createBotResponder } = require("./bots");
+const { startBotChat, createBotResponder, aiProvider } = require("./bots");
 
 const app = express();
 const server = http.createServer(app);
@@ -738,7 +738,8 @@ if (process.env.BOT_CHAT !== "off") {
     post: postBotMessage,
   });
   console.log("[bot] 常設の部屋のボット雑談を始めました(止めるときは BOT_CHAT=off)");
-  console.log(`[bot] AIの返事: ${process.env.ANTHROPIC_API_KEY ? "オン(モデル: " + (process.env.BOT_AI_MODEL || "claude-haiku-5-5") + ")" : "オフ(ANTHROPIC_API_KEY が未設定のため、ルールの返事だけ)"}`);
+  const ai = aiProvider();
+  console.log(`[bot] AIの返事: ${ai ? "オン(" + ai.name + " / モデル: " + ai.model + ")" : "オフ(GROQ_API_KEY などが未設定のため、ルールの返事だけ)"}`);
 }
 
 const PORT = process.env.PORT || 3000;
