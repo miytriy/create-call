@@ -736,6 +736,10 @@ if (process.env.BOT_CHAT !== "off") {
     rooms,
     typing: (code, bot) => io.to(code).emit("typing", { name: bot.name }),
     post: postBotMessage,
+    getRecent: (code) => {
+      const room = rooms.get(code);
+      return room ? [...room.messages.values()].slice(-12).map((m) => ({ name: m.name, text: m.text })) : [];
+    },
   });
   console.log("[bot] 常設の部屋のボット雑談を始めました(止めるときは BOT_CHAT=off)");
   const ai = aiProvider();

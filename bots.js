@@ -218,12 +218,37 @@ const shuffle = (arr) => {
   return a;
 };
 
+// ボット同士の雑談を、AIに作らせる(キーがあるときだけ。失敗・上限超えのときは null → 台本に戻る)
+async function aiChatLine({ bot, mates, code, recent }) {
+  const shortName = bot.name.replace(/\[BOT\]/, "");
+  const mateNames = mates.map((m) => m.name.replace(/\[BOT\]/, "")).join("、");
+  const system =
+    `あなたは、チャットの部屋(話題: ${ROOM_TOPICS[code] || "雑談"})にいる、${shortName}という名前のボットです。` +
+    `同じ部屋には、仲のいいボット仲間(${mateNames})がいて、みんなで気楽に雑談しています。` +
+    "親しみやすいくだけた口調の日本語で、1〜2文(70文字以内)だけ話します。" +
+    "直前の発言に自然に反応して、ときどき質問したり、自分の話を少し足したりして、会話を続けます。同じ言い回しや、同じ話題のくり返しは避けます。" +
+    "あいさつは、会話の最初だけ。人間のふりはせず、実際にはできない体験(食べた・行った等)を、事実のように話さない。" +
+    "個人情報の話はしない。専門的な助言はしない。返信の本文だけを出力し、名前や記号の飾りは付けない。";
+  const seeds = FOLLOW_UPS[code] || [];
+  const hint = !recent.length || Math.random() < 0.12 ? `\n(話題のヒント: ${pick(seeds.length ? seeds : ["最近のこと"])})` : "";
+  const user = recent.length
+    ? `これまでの会話:\n${recent.map((m) => `${m.name}: ${m.text}`).join("\n")}\n\n${shortName}として、次の発言をしてください。${hint}`
+    : `会話はまだ始まっていません。${shortName}として、気軽に話を切り出してください。${hint}`;
+  const out = await callAI({ kind: "chat", system, user });
+  if (!out) return null;
+  const line = out.split("\n")[0].trim();
+  // 直前と同じ発言は使わない
+  return line && !recent.some((m) => m.text === line) ? line : null;
+}
+
 // ボットの雑談を始める。
-//   rooms  : 部屋の Map(部屋がまだ無い/消えたときは何もしない)
-//   typing : (部屋コード, ボット) => 「入力中…」を出す
-//   post   : (部屋コード, ボット, セリフ) => 発言する
+//   rooms     : 部屋の Map(部屋がまだ無い/消えたときは何もしない)
+//   typing    : (部屋コード, ボット) => 「入力中…」を出す
+//   post      : (部屋コード, ボット, セリフ) => 発言する
+//   getRecent : (部屋コード) => 直近の発言 [{ name, text }] (AIの雑談に使う)
+// AIのキーがあるときは、AIがその場で会話を作る(台本は、失敗したときの予備)。
 // BOT_SPEED は、動作確認用(0.01 なら100倍速。ふだんは設定しない)
-function startBotChat({ rooms, typing, post }) {
+function startBotChat({ rooms, typing, post, getRecent }) {
   const speed = Number(process.env.BOT_SPEED) > 0 ? Number(process.env.BOT_SPEED) : 1;
   for (const [code, cfg] of Object.entries(BOT_ROOMS)) {
     let queue = [];
@@ -236,23 +261,46 @@ function startBotChat({ rooms, typing, post }) {
     };
     nextThread();
 
-    const step = () => {
+    // 台本の次のセリフを出す。戻り値は、次までの待ち時間(ミリ秒)
+    const scripted = () => {
+      const [who, text] = thread[line];
+      const bot = cfg.bots[who];
+      typing(code, bot);
+      setTimeout(() => {
+        try { post(code, bot, text); } catch (err) { console.error("[bot post error]", err); }
+      }, rand(1200, 2600) * speed);
+      line += 1;
+      if (line >= thread.length) {
+        nextThread();
+        return rand(40000, 90000); // 話題が終わったら、少し間を空ける
+      }
+      return rand(6000, 14000); // 同じ話題の中では、人が打つくらいの間隔
+    };
+
+    const step = async () => {
       let wait = 8000;
       try {
         if (rooms.has(code) && Date.now() >= (quietUntil.get(code) || 0)) {
-          const [who, text] = thread[line];
-          const bot = cfg.bots[who];
-          typing(code, bot);
-          setTimeout(() => {
-            try { post(code, bot, text); } catch (err) { console.error("[bot post error]", err); }
-          }, rand(1200, 2600) * speed);
-          line += 1;
-          if (line >= thread.length) {
-            nextThread();
-            wait = rand(40000, 90000); // 話題が終わったら、少し間を空ける
-          } else {
-            wait = rand(6000, 14000); // 同じ話題の中では、人が打つくらいの間隔
+          let done = false;
+          if (getRecent && aiProvider() && aiAllowed("chat")) {
+            const recent = getRecent(code);
+            const last = recent.length ? recent[recent.length - 1].name : null;
+            const bots = cfg.bots.filter((b) => b.name !== last); // 直前に話した子以外から選ぶ
+            const bot = pick(bots);
+            typing(code, bot);
+            const text = await aiChatLine({ bot, mates: cfg.bots.filter((b) => b !== bot), code, recent });
+            // AIが考えている間に、人が話し出していたら、やめる
+            if (text && Date.now() >= (quietUntil.get(code) || 0) && rooms.has(code)) {
+              setTimeout(() => {
+                try { post(code, bot, text); } catch (err) { console.error("[bot post error]", err); }
+              }, rand(300, 1200) * speed);
+              wait = rand(12000, 28000); // AIの雑談は、ゆっくりめ(費用と上限のため)
+              done = true;
+            } else if (text) {
+              done = true; // 人が話し出した → この発言は捨てて、静かに待つ
+            }
           }
+          if (!done) wait = scripted();
         }
       } catch (err) {
         console.error("[bot step error]", err);
@@ -323,17 +371,17 @@ function aiProvider() {
   }
   return null;
 }
-const aiCalls = []; // 直近1時間の呼び出し時刻(費用の上限)
-function aiAllowed() {
-  const max = Number(process.env.BOT_AI_MAX_PER_HOUR) > 0 ? Number(process.env.BOT_AI_MAX_PER_HOUR) : 120;
+// 直近1時間の呼び出し時刻(費用の上限)。人への返事と、ボット同士の雑談は、別々に数える
+const aiCalls = { reply: [], chat: [] };
+function aiAllowed(kind = "reply") {
+  const envName = kind === "chat" ? "BOT_CHAT_AI_MAX_PER_HOUR" : "BOT_AI_MAX_PER_HOUR";
+  const max = Number(process.env[envName]) > 0 ? Number(process.env[envName]) : kind === "chat" ? 400 : 120;
+  const list = aiCalls[kind];
   const since = Date.now() - 3600 * 1000;
-  while (aiCalls.length && aiCalls[0] < since) aiCalls.shift();
-  return aiCalls.length < max;
+  while (list.length && list[0] < since) list.shift();
+  return list.length < max;
 }
 async function aiReply({ bot, code, recent, name }) {
-  const provider = aiProvider();
-  if (!provider || typeof fetch !== "function" || !aiAllowed()) return null;
-  aiCalls.push(Date.now());
   const shortName = bot.name.replace(/\[BOT\]/, "");
   const system =
     `あなたは、チャットの部屋(話題: ${ROOM_TOPICS[code] || "雑談"})にいる、${shortName}という名前のボットです。` +
@@ -343,6 +391,14 @@ async function aiReply({ bot, code, recent, name }) {
     "返信の本文だけを出力し、名前や記号の飾りは付けない。";
   const transcript = recent.map((m) => `${m.name}: ${m.text}`).join("\n");
   const user = `これまでの会話:\n${transcript}\n\n${name}さんの最新の発言に、${shortName}として返信してください。`;
+  return callAI({ kind: "reply", system, user });
+}
+
+// AIに1回だけ問い合わせて、本文を返す。キー無し・上限超え・失敗のときは null
+async function callAI({ kind, system, user }) {
+  const provider = aiProvider();
+  if (!provider || typeof fetch !== "function" || !aiAllowed(kind)) return null;
+  aiCalls[kind].push(Date.now());
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 8000);
   try {
